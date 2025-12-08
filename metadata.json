@@ -1,0 +1,5 @@
+{
+  "name": "Gemini NoteMinder",
+  "description": "A smart sticky-note and notebook application. Manage tasks in a notebook view or pin them to your virtual desktop as sticky notes. Features AI-powered task parsing.",
+  "requestFramePermissions": []
+}
