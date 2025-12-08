@@ -34,6 +34,9 @@ const DEFAULT_BOOKS: SmartBook[] = [
     { id: '1', title: 'Scholar', url: 'https://scholar.google.com', color: '#4285f4', position: 2, spineDetail: 1 },
     { id: '2', title: 'GitHub', url: 'https://github.com', color: '#24292e', position: 5, spineDetail: 2 },
     { id: '3', title: 'Gemini', url: 'https://gemini.google.com', color: '#8e24aa', position: 8, spineDetail: 0 },
+    { id: '4', title: 'TODO', url: '', color: '#9e9e9e', position: 10, spineDetail: 3 },
+    { id: '5', title: 'TODO', url: '', color: '#b0bec5', position: 13, spineDetail: 1 },
+    { id: '6', title: 'TODO', url: '', color: '#78909c', position: 17, spineDetail: 2 },
 ];
 
 const DEFAULT_PRESETS: NotePreset[] = [
