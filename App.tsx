@@ -34,11 +34,18 @@ const DEFAULT_BOOKS: SmartBook[] = [
     { id: '1', title: 'Scholar', url: 'https://scholar.google.com', color: '#4285f4', position: 2, spineDetail: 1 },
     { id: '2', title: 'GitHub', url: 'https://github.com', color: '#24292e', position: 5, spineDetail: 2 },
     { id: '3', title: 'Gemini', url: 'https://gemini.google.com', color: '#8e24aa', position: 8, spineDetail: 0 },
-    { id: '4', title: 'Notes', url: '#', color: '#f59e0b', position: 9, spineDetail: 3 },
-    { id: '5', title: 'Music', url: 'https://youtube.com', color: '#ef4444', position: 10, spineDetail: 1 },
-    { id: '6', title: 'Docs', url: 'https://docs.google.com', color: '#3b82f6', position: 12, spineDetail: 0 },
-    { id: '7', title: 'Design', url: 'https://dribbble.com', color: '#ec4899', position: 16, spineDetail: 2 },
-    { id: '8', title: 'Ref', url: 'https://wikipedia.org', color: '#6b7280', position: 18, spineDetail: 3 },
+];
+
+const DEFAULT_PRESETS: NotePreset[] = [
+    {
+        id: 'default-style-0',
+        name: 'Note Style 0',
+        theme: { type: 'color', value: '#fef3c7', textColor: '#000000', opacity: 1 },
+        styleVariant: 'clip',
+        textureVariant: 'lined',
+        decorationPosition: 'top-left',
+        isDefault: true
+    }
 ];
 
 // Favicon Data URIs
@@ -117,8 +124,17 @@ const App: React.FC = () => {
 
     if (savedPresets) {
         try {
-            setPresets(JSON.parse(savedPresets));
-        } catch (e) {}
+            const parsed = JSON.parse(savedPresets);
+            if (parsed && parsed.length > 0) {
+                setPresets(parsed);
+            } else {
+                setPresets(DEFAULT_PRESETS);
+            }
+        } catch (e) {
+            setPresets(DEFAULT_PRESETS);
+        }
+    } else {
+        setPresets(DEFAULT_PRESETS);
     }
 
     if (savedBooks) {

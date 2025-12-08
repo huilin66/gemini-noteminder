@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook } from '../types';
-import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link } from 'lucide-react';
+import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star } from 'lucide-react';
 import { parseNoteWithAI } from '../services/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 import { translations } from '../utils/i18n';
@@ -158,6 +158,8 @@ const Notebook: React.FC<NotebookProps> = ({
   const resizeStartX = useRef<number>(0);
   const resizeStartWidth = useRef<number>(0);
 
+  const notebookBgImageInputRef = useRef<HTMLInputElement>(null);
+
   const t = translations[language];
 
   const [formData, setFormData] = useState<{
@@ -278,6 +280,14 @@ const Notebook: React.FC<NotebookProps> = ({
     const now = Date.now();
     const id = uuidv4();
     
+    const defaultPreset = presets.find(p => p.isDefault) || {
+        theme: { type: 'color', value: '#fef3c7', textColor: '#000000', opacity: 1 },
+        styleVariant: 'clip',
+        textureVariant: 'lined',
+        decorationPosition: 'top-left'
+    };
+
+    // @ts-ignore
     const defaultNote: Note = {
       id: id,
       groupId: activeGroupId,
@@ -290,14 +300,15 @@ const Notebook: React.FC<NotebookProps> = ({
       importance: NoteImportance.MEDIUM,
       isReminderOn: false,
       reminderTime: now,
-      theme: { type: 'color', value: '#fef3c7', textColor: '#000000', opacity: 1 },
       isPinned: false,
       position: { x: window.innerWidth / 2 - 128, y: window.innerHeight / 2 - 100 },
       zIndex: currentMaxZIndex + 1,
-      styleVariant: 'clip',
-      textureVariant: 'lined',
-      decorationPosition: 'top-left',
-      dimensions: { width: 280, height: 275 }
+      dimensions: { width: 280, height: 275 },
+      
+      theme: defaultPreset.theme,
+      styleVariant: defaultPreset.styleVariant,
+      textureVariant: defaultPreset.textureVariant,
+      decorationPosition: defaultPreset.decorationPosition
     };
     onAddNote(defaultNote);
   };
@@ -305,20 +316,20 @@ const Notebook: React.FC<NotebookProps> = ({
   const handleCreatePreset = () => {
       if(!newPresetName) return;
       
-      // Update existing if name matches
       const existing = presets.find(p => p.name === newPresetName);
+      if (existing) {
+          alert("A style with this name already exists. Please choose a different name.");
+          return;
+      }
       
       const newPreset: NotePreset = {
-          id: existing ? existing.id : uuidv4(),
+          id: uuidv4(),
           name: newPresetName,
-          ...draftPreset
+          ...draftPreset,
+          isDefault: presets.length === 0 // If it's the first one, make it default
       };
       
-      if (existing) {
-          setPresets(presets.map(p => p.id === existing.id ? newPreset : p));
-      } else {
-          setPresets([...presets, newPreset]);
-      }
+      setPresets([...presets, newPreset]);
       setNewPresetName('');
   };
 
@@ -334,6 +345,13 @@ const Notebook: React.FC<NotebookProps> = ({
 
   const handleDeletePreset = (id: string) => {
       setPresets(presets.filter(p => p.id !== id));
+  };
+
+  const handleSetDefaultPreset = (id: string) => {
+      setPresets(presets.map(p => ({
+          ...p,
+          isDefault: p.id === id
+      })));
   };
 
   const handleBatchPin = () => {
@@ -387,6 +405,8 @@ const Notebook: React.FC<NotebookProps> = ({
   };
 
   const showHelp = () => {
+      // Close stickies view (hide notes) but keep notebook open (don't force false)
+      setViewState(prev => ({ ...prev, showStickies: false, showTodayStickies: false }));
       setModalConfig({
           isOpen: true,
           title: t.help.title,
@@ -395,6 +415,12 @@ const Notebook: React.FC<NotebookProps> = ({
           type: 'info',
           isCustomContent: true
       })
+  }
+
+  const handleOpenSettings = () => {
+      // Close stickies view (hide notes) but keep notebook open
+      setViewState(prev => ({ ...prev, showStickies: false, showTodayStickies: false }));
+      setShowSettingsModal(true);
   }
 
   const requestDeleteGroup = (id: string, name: string) => {
@@ -520,6 +546,33 @@ const Notebook: React.FC<NotebookProps> = ({
     }
   };
 
+  const handleNotebookBgImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setNotebookTheme({ ...notebookTheme, type: 'image', value: reader.result as string });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAddNewBook = () => {
+      // Find a free position or just append
+      const positions = books.map(b => b.position);
+      let nextPos = 0;
+      while(positions.includes(nextPos)) nextPos++;
+      
+      const newBook: SmartBook = {
+          id: Date.now().toString(),
+          title: 'New Book',
+          url: 'https://',
+          color: '#607d8b',
+          position: nextPos,
+          spineDetail: Math.floor(Math.random() * 4)
+      };
+      onUpdateBooks([...books, newBook]);
+  };
+
   const handleMouseDownResize = (e: React.MouseEvent, col: keyof ColumnWidths) => {
     setResizingCol(col);
     resizeStartX.current = e.clientX;
@@ -569,17 +622,21 @@ const Notebook: React.FC<NotebookProps> = ({
     };
   }, [resizingCol, isResizingGroups]);
 
-  const getThemeStyle = (theme: ThemeConfig) => ({
-      backgroundColor: theme.type === 'color' ? theme.value : undefined,
-      backgroundImage: theme.type === 'image' ? `url(${theme.value})` : undefined,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-  });
-
-  const getOverlayStyle = (theme: ThemeConfig) => ({
-      backgroundColor: theme.type === 'image' ? 'black' : 'white',
-      opacity: 1 - theme.opacity,
-  });
+  // Updated to support opacity on the background layer directly
+  const getContainerStyle = (theme: ThemeConfig) => {
+      const style: React.CSSProperties = {
+          position: 'absolute',
+          inset: 0,
+          zIndex: 0,
+          opacity: theme.opacity, // Apply user opacity here
+          backgroundColor: theme.type === 'color' ? theme.value : undefined,
+          backgroundImage: theme.type === 'image' ? `url(${theme.value})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          borderRadius: '1.5rem', // Match rounded-3xl
+      };
+      return style;
+  };
 
   const SortArrow = ({ column }: { column: SortKey }) => {
     const isActive = sortConfig?.key === column;
@@ -683,7 +740,11 @@ const Notebook: React.FC<NotebookProps> = ({
           importance: NoteImportance.MEDIUM,
           isReminderOn: false,
           isPinned: true,
-          position: { x: 0, y: 0 },
+          // Calculate Center Position for 220x220 note in 300x300 container
+          // Container: 300x300
+          // Note scaled: ~220x220 (approx, scale-75 of 280ish)
+          // Actually let's just center it
+          position: { x: 35, y: 40 },
           zIndex: 1,
           theme: draftPreset.theme,
           styleVariant: draftPreset.styleVariant,
@@ -693,7 +754,7 @@ const Notebook: React.FC<NotebookProps> = ({
       };
       
       return (
-          <div className="relative w-[220px] h-[220px] scale-75 origin-top-left pointer-events-none select-none">
+          <div className="relative w-full h-full pointer-events-none select-none overflow-hidden scale-75 origin-top-left" style={{ transform: 'scale(0.75) translate(20px, 20px)' }}>
               <StickyNote 
                 note={dummyNote} 
                 presets={[]} 
@@ -709,6 +770,8 @@ const Notebook: React.FC<NotebookProps> = ({
   return (
     // CRITICAL: pointer-events-none ensures clicks pass through empty space to the Bookshelf
     <div className="flex w-full h-full max-w-[1800px] mx-auto transition-all relative justify-center pointer-events-none">
+      
+      {/* ... Sidebar and Panels ... */}
       
       {/* --- Sidebar (3-Groups) --- */}
       {/* CRITICAL: pointer-events-auto ensures the sidebar is clickable */}
@@ -747,7 +810,7 @@ const Notebook: React.FC<NotebookProps> = ({
             <div className="w-8 h-px bg-white/20 my-3"></div>
 
             {/* GROUP 3: System */}
-            <SidebarIcon icon={Settings} label={t.sidebar.settings} isActive={showSettingsModal} onClick={() => setShowSettingsModal(true)} />
+            <SidebarIcon icon={Settings} label={t.sidebar.settings} isActive={showSettingsModal} onClick={handleOpenSettings} />
             <SidebarIcon icon={HelpCircle} label={t.sidebar.help} isActive={false} onClick={showHelp} />
           </div>
       </div>
@@ -760,64 +823,66 @@ const Notebook: React.FC<NotebookProps> = ({
       >
         <div 
           className="relative w-full h-full rounded-3xl shadow-xl overflow-hidden border border-white/20 flex flex-col"
-          style={getThemeStyle(notebookTheme)}
+          style={getContainerStyle(notebookTheme)}
         >
-           <div className="absolute inset-0 pointer-events-none z-0" style={getOverlayStyle(notebookTheme)}></div>
-           {notebookTheme.texture && notebookTheme.texture !== 'solid' && (
-              <div className={`absolute inset-0 pointer-events-none opacity-30 ${
-                notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : 
-                notebookTheme.texture === 'grid' ? 'bg-pattern-grid' : 
-                notebookTheme.texture === 'dots' ? 'bg-pattern-dots' : ''
-              }`}></div>
-           )}
-          
-          <div className="relative z-10 p-4 h-full overflow-y-auto flex flex-col">
-            <div className="text-xs font-bold text-stone-500 px-2 py-1 uppercase tracking-wider mb-2 flex items-center gap-2">
-                <Library size={12} /> {t.groups.title}
+          {/* Content Wrapper for Z-Index */}
+          <div className="relative z-10 w-full h-full flex flex-col bg-white/30">
+            {/* Texture */}
+            {notebookTheme.texture && notebookTheme.texture !== 'solid' && (
+                  <div className={`absolute inset-0 pointer-events-none opacity-20 ${
+                    notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : 
+                    notebookTheme.texture === 'grid' ? 'bg-pattern-grid' : 
+                    notebookTheme.texture === 'dots' ? 'bg-pattern-dots' : ''
+                  }`}></div>
+            )}
+            <div className="p-4 h-full overflow-y-auto flex flex-col">
+              <div className="text-xs font-bold text-stone-500 px-2 py-1 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <Library size={12} /> {t.groups.title}
+              </div>
+              {groups.map((group, index) => (
+                  <div 
+                  key={group.id}
+                  draggable={!editingGroupId}
+                  onDragStart={(e) => handleGroupDragStart(e, index)}
+                  onDragEnter={(e) => handleGroupDragEnter(e, index)}
+                  onDragEnd={handleGroupDragEnd}
+                  onDragOver={(e) => e.preventDefault()}
+                  onClick={() => onSetActiveGroupId(group.id)}
+                  onDoubleClick={() => { setEditingGroupId(group.id); setTempGroupName(group.name); }}
+                  className={`p-3 mb-2 rounded-xl cursor-pointer text-sm font-medium transition-all flex items-center justify-between group/item border border-transparent ${activeGroupId === group.id ? 'bg-stone-800 text-white shadow-md border-stone-600' : 'hover:bg-black/5 text-stone-700 hover:border-black/10'}`}
+                  >
+                  <div className="flex items-center gap-2 overflow-hidden flex-1">
+                      <div className="cursor-grab active:cursor-grabbing text-stone-400 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                          <GripVertical size={12} />
+                      </div>
+                      {editingGroupId === group.id ? (
+                          <input 
+                          autoFocus 
+                          className="w-full bg-white text-black rounded px-1 outline-none"
+                          value={tempGroupName}
+                          onChange={(e) => setTempGroupName(e.target.value)}
+                          onBlur={() => { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }}
+                          onKeyDown={(e) => { if(e.key === 'Enter') { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }}}
+                          />
+                      ) : (
+                          <span className="truncate">{group.name}</span>
+                      )}
+                  </div>
+                  {groups.length > 1 && (
+                      <button 
+                      onClick={(e) => { e.stopPropagation(); requestDeleteGroup(group.id, group.name); }}
+                      className="opacity-0 group-hover/item:opacity-100 hover:text-red-400 p-1 transition-opacity shrink-0"
+                      title="Delete Notebook"
+                      >
+                      <X size={12} />
+                      </button>
+                  )}
+                  </div>
+              ))}
+              <button onClick={onCreateGroup} className="mt-2 p-3 border-2 border-dashed border-black/10 rounded-xl text-black/40 hover:border-black/30 hover:text-black/60 flex justify-center transition-colors" title={t.groups.newGroup}>
+                  <Plus size={18} />
+              </button>
             </div>
-            {groups.map((group, index) => (
-                <div 
-                key={group.id}
-                draggable={!editingGroupId}
-                onDragStart={(e) => handleGroupDragStart(e, index)}
-                onDragEnter={(e) => handleGroupDragEnter(e, index)}
-                onDragEnd={handleGroupDragEnd}
-                onDragOver={(e) => e.preventDefault()}
-                onClick={() => onSetActiveGroupId(group.id)}
-                onDoubleClick={() => { setEditingGroupId(group.id); setTempGroupName(group.name); }}
-                className={`p-3 mb-2 rounded-xl cursor-pointer text-sm font-medium transition-all flex items-center justify-between group/item border border-transparent ${activeGroupId === group.id ? 'bg-stone-800 text-white shadow-md border-stone-600' : 'hover:bg-black/5 text-stone-700 hover:border-black/10'}`}
-                >
-                <div className="flex items-center gap-2 overflow-hidden flex-1">
-                    <div className="cursor-grab active:cursor-grabbing text-stone-400 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                        <GripVertical size={12} />
-                    </div>
-                    {editingGroupId === group.id ? (
-                        <input 
-                        autoFocus 
-                        className="w-full bg-white text-black rounded px-1 outline-none"
-                        value={tempGroupName}
-                        onChange={(e) => setTempGroupName(e.target.value)}
-                        onBlur={() => { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }}
-                        onKeyDown={(e) => { if(e.key === 'Enter') { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }}}
-                        />
-                    ) : (
-                        <span className="truncate">{group.name}</span>
-                    )}
-                </div>
-                {groups.length > 1 && (
-                    <button 
-                    onClick={(e) => { e.stopPropagation(); requestDeleteGroup(group.id, group.name); }}
-                    className="opacity-0 group-hover/item:opacity-100 hover:text-red-400 p-1 transition-opacity shrink-0"
-                    title="Delete Notebook"
-                    >
-                    <X size={12} />
-                    </button>
-                )}
-                </div>
-            ))}
-            <button onClick={onCreateGroup} className="mt-2 p-3 border-2 border-dashed border-black/10 rounded-xl text-black/40 hover:border-black/30 hover:text-black/60 flex justify-center transition-colors" title={t.groups.newGroup}>
-                <Plus size={18} />
-            </button>
           </div>
         </div>
         {viewState.showGroups && (
@@ -831,18 +896,20 @@ const Notebook: React.FC<NotebookProps> = ({
       {/* --- Main Table Panel --- */}
       {/* CRITICAL: pointer-events-auto */}
       <div className={`relative transition-all duration-500 ease-in-out flex flex-col overflow-hidden pointer-events-auto ${viewState.showNotebook ? 'flex-1 opacity-100 translate-x-0' : 'w-0 opacity-0 translate-x-10'}`}>
-         <div 
-            className="relative w-full h-full rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-white/20"
-            style={getThemeStyle(notebookTheme)}
-         >
-             <div className="absolute inset-0 pointer-events-none z-0" style={getOverlayStyle(notebookTheme)}></div>
-              {notebookTheme.texture && notebookTheme.texture !== 'solid' && (
-                  <div className={`absolute inset-0 pointer-events-none opacity-30 ${
+         {/* Notebook Container - Separation of Background from Content for Opacity */}
+         <div className="relative w-full h-full rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-white/20">
+             
+             {/* Background Layer with Opacity */}
+             <div style={getContainerStyle(notebookTheme)}></div>
+
+             {/* Texture Layer */}
+             {notebookTheme.texture && notebookTheme.texture !== 'solid' && (
+                  <div className={`absolute inset-0 pointer-events-none opacity-20 z-0 ${
                     notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : 
                     notebookTheme.texture === 'grid' ? 'bg-pattern-grid' : 
                     notebookTheme.texture === 'dots' ? 'bg-pattern-dots' : ''
                   }`}></div>
-               )}
+             )}
 
             <div className="absolute left-0 top-0 bottom-0 w-3 z-20 flex flex-col justify-evenly py-4 opacity-50">
                {Array.from({ length: 12 }).map((_, i) => (
@@ -851,7 +918,7 @@ const Notebook: React.FC<NotebookProps> = ({
             </div>
 
             {/* Toolbar */}
-            <div className="relative z-[60] bg-white/50 backdrop-blur-md p-3 border-b border-stone-200/50 flex justify-between items-center shadow-sm shrink-0">
+            <div className="relative z-[60] bg-white/30 backdrop-blur-md p-3 border-b border-stone-200/50 flex justify-between items-center shadow-sm shrink-0">
                <div className="pl-2">
                   <div className="flex items-center gap-2">
                       <PenLine className="text-stone-600" />
@@ -924,9 +991,10 @@ const Notebook: React.FC<NotebookProps> = ({
 
             {/* Table Content */}
             <div className="flex-1 overflow-auto notebook-scroll paper-lines relative z-10">
+               {/* ... Table ... */}
                <div style={{ width: (Object.values(colWidths) as number[]).reduce((a, b) => a + b, 0) + 40, minWidth: '100%' }}>
                   
-                  <div className="flex sticky top-0 z-10 shadow-sm h-9 pl-4 border-b border-stone-300/50">
+                  <div className="flex sticky top-0 z-10 shadow-sm h-9 pl-4 border-b border-stone-300/50 bg-white/40 backdrop-blur-md">
                       <HeaderCell label={t.table.content} colKey="content" />
                       <HeaderCell label={t.table.added} colKey="createdAt" sortKey="createdAt" />
                       <HeaderCell label={t.table.start} colKey="startTime" sortKey="startTime" />
@@ -1061,11 +1129,12 @@ const Notebook: React.FC<NotebookProps> = ({
 
       {/* --- Settings Modal --- */}
       {showSettingsModal && (
-          <div className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-sm flex items-center justify-center pointer-events-auto" onClick={() => setShowSettingsModal(false)}>
+          <div className="fixed inset-0 z-[1000] bg-black/30 backdrop-blur-[2px] flex items-center justify-center pointer-events-auto" onClick={() => setShowSettingsModal(false)}>
               <div 
                 className="bg-white rounded-2xl shadow-2xl w-[600px] max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" 
                 onClick={e => e.stopPropagation()}
               >
+                  {/* ... Header and Tabs ... */}
                   {/* Modal Header */}
                   <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50">
                       <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2">
@@ -1099,7 +1168,7 @@ const Notebook: React.FC<NotebookProps> = ({
                                   </div>
                               </div>
                               <div className="p-4 bg-stone-50 rounded-xl text-stone-500 text-sm leading-relaxed border border-stone-100">
-                                  <p>Version 4.2.0 (Enhanced Bookshelf & I18n)</p>
+                                  <p>Version 4.3.0</p>
                                   <p className="mt-2">Gemini NoteMinder is designed to help you organize your life with AI-powered task management and a beautiful, skeuomorphic interface.</p>
                               </div>
                           </div>
@@ -1128,7 +1197,12 @@ const Notebook: React.FC<NotebookProps> = ({
                                        </div>
 
                                        <div>
-                                           <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.manageBooks}</label>
+                                           <div className="flex justify-between items-end mb-2">
+                                               <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">{t.settingsModal.manageBooks}</label>
+                                               <button onClick={handleAddNewBook} className="text-xs font-bold text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors flex items-center gap-1">
+                                                   <Plus size={12}/> {t.settingsModal.addBook}
+                                               </button>
+                                           </div>
                                            <div className="border rounded-xl divide-y divide-stone-100 max-h-60 overflow-y-auto">
                                                {books.sort((a,b) => a.position - b.position).map(book => (
                                                    <div key={book.id} className="p-2 flex gap-2 items-center hover:bg-stone-50 group">
@@ -1161,14 +1235,28 @@ const Notebook: React.FC<NotebookProps> = ({
                                    </div>
                               )}
 
-                              {bookshelfTheme.type === 'color' && (
-                                  <div>
-                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.bgColor}</label>
-                                      <div className="flex gap-2 items-center">
-                                          <input type="color" value={bookshelfTheme.value} onChange={e => setBookshelfTheme({...bookshelfTheme, value: e.target.value})} className="h-10 w-20 cursor-pointer rounded border border-stone-200 p-0" />
-                                          <div className="text-sm font-mono text-stone-500">{bookshelfTheme.value}</div>
+                              {(bookshelfTheme.type === 'color' || bookshelfTheme.type === 'image') && (
+                                  <>
+                                      {bookshelfTheme.type === 'color' && (
+                                            <div>
+                                                <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.bgColor}</label>
+                                                <div className="flex gap-2 items-center">
+                                                    <input type="color" value={bookshelfTheme.value} onChange={e => setBookshelfTheme({...bookshelfTheme, value: e.target.value})} className="h-10 w-20 cursor-pointer rounded border border-stone-200 p-0" />
+                                                    <div className="text-sm font-mono text-stone-500">{bookshelfTheme.value}</div>
+                                                </div>
+                                            </div>
+                                      )}
+                                      <div>
+                                          <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.opacity} ({(bookshelfTheme.opacity * 100).toFixed(0)}%)</label>
+                                          <input 
+                                              type="range" 
+                                              min="0" max="1" step="0.05" 
+                                              value={bookshelfTheme.opacity} 
+                                              onChange={e => setBookshelfTheme({...bookshelfTheme, opacity: parseFloat(e.target.value)})} 
+                                              className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer"
+                                          />
                                       </div>
-                                  </div>
+                                  </>
                               )}
 
                               <div className="pt-4 border-t">
@@ -1182,10 +1270,24 @@ const Notebook: React.FC<NotebookProps> = ({
                           <div className="space-y-6">
                               <div>
                                   <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.bgType}</label>
-                                  <div className="flex gap-2">
+                                  <div className="flex gap-2 items-center">
                                       <button onClick={() => setNotebookTheme({...notebookTheme, type: 'color'})} className={`px-4 py-2 rounded-lg border text-sm font-bold ${notebookTheme.type === 'color' ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-stone-50 text-stone-600'}`}>{t.settingsModal.bgColor}</button>
+                                      <button onClick={() => setNotebookTheme({...notebookTheme, type: 'image'})} className={`px-4 py-2 rounded-lg border text-sm font-bold ${notebookTheme.type === 'image' ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-stone-50 text-stone-600'}`}>{t.settingsModal.bgImage}</button>
                                   </div>
                               </div>
+                              
+                              {notebookTheme.type === 'image' && (
+                                  <div>
+                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">Upload Image</label>
+                                      <div className="flex gap-2 items-center">
+                                          <label className="cursor-pointer px-4 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-sm font-bold text-stone-600 flex items-center gap-2">
+                                              <ImageIcon size={16} /> Choose File
+                                              <input type="file" accept="image/*" className="hidden" ref={notebookBgImageInputRef} onChange={handleNotebookBgImageUpload} />
+                                          </label>
+                                          {notebookTheme.value && <div className="text-xs text-stone-400 truncate max-w-[200px]">Image Set</div>}
+                                      </div>
+                                  </div>
+                              )}
 
                               <div>
                                   <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.texture}</label>
@@ -1206,7 +1308,7 @@ const Notebook: React.FC<NotebookProps> = ({
                                   <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.opacity} ({(notebookTheme.opacity * 100).toFixed(0)}%)</label>
                                   <input 
                                       type="range" 
-                                      min="0.5" max="1" step="0.05" 
+                                      min="0" max="1" step="0.05" 
                                       value={notebookTheme.opacity} 
                                       onChange={e => setNotebookTheme({...notebookTheme, opacity: parseFloat(e.target.value)})} 
                                       className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer"
@@ -1221,7 +1323,7 @@ const Notebook: React.FC<NotebookProps> = ({
 
                       {/* Presets Tab */}
                       {settingsTab === 'presets' && (
-                          <div className="flex gap-6 h-[320px]">
+                          <div className="flex gap-6 h-[400px]">
                               {/* Left: Editor */}
                               <div className="w-[240px] flex flex-col gap-4">
                                   <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 flex-1 overflow-y-auto">
@@ -1244,29 +1346,48 @@ const Notebook: React.FC<NotebookProps> = ({
                                   <div className="flex gap-2">
                                       <input 
                                           className="flex-1 border rounded px-2 py-1.5 text-sm"
-                                          placeholder="Preset Name"
+                                          placeholder="Style Name"
                                           value={newPresetName}
                                           onChange={e => setNewPresetName(e.target.value)}
                                       />
-                                      <button onClick={handleCreatePreset} disabled={!newPresetName} className="bg-stone-800 text-white px-3 rounded text-sm font-bold disabled:opacity-50">{t.settingsModal.newPreset}</button>
+                                      <button onClick={handleCreatePreset} disabled={!newPresetName} className="bg-stone-800 text-white px-3 rounded text-sm font-bold disabled:opacity-50">{t.settingsModal.newPreset.split(' ')[0]}</button>
                                   </div>
                               </div>
 
                               {/* Right: List & Preview */}
                               <div className="flex-1 flex flex-col gap-4">
-                                  <div className="h-[180px] bg-stone-100 rounded-xl border-2 border-dashed border-stone-200 flex items-center justify-center overflow-hidden relative">
+                                  <div className="h-[280px] bg-stone-100 rounded-xl border-2 border-dashed border-stone-200 flex items-center justify-center overflow-hidden relative">
                                       <div className="absolute top-2 left-2 text-xs font-bold text-stone-400 uppercase">{t.note.preview}</div>
                                       {renderPreviewNote()}
                                   </div>
                                   
                                   <div className="flex-1 overflow-y-auto pr-1">
                                       <div className="text-xs font-bold text-stone-400 uppercase mb-2">{t.settingsModal.presets}</div>
-                                      {presets.length === 0 && <div className="text-sm text-stone-400 italic">No presets saved yet.</div>}
-                                      <div className="grid grid-cols-2 gap-2">
+                                      {presets.length === 0 && <div className="text-sm text-stone-400 italic">No styles saved yet.</div>}
+                                      <div className="grid grid-cols-1 gap-2">
                                           {presets.map(preset => (
-                                              <div key={preset.id} className="flex items-center justify-between p-2 rounded border hover:bg-stone-50 group">
-                                                  <button onClick={() => loadPresetIntoDraft(preset)} className="text-sm font-bold text-stone-700 truncate text-left flex-1">{preset.name}</button>
-                                                  <button onClick={() => handleDeletePreset(preset.id)} className="text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14}/></button>
+                                              <div key={preset.id} className={`flex items-center justify-between p-2 rounded border transition-colors group ${preset.isDefault ? 'bg-yellow-50 border-yellow-200' : 'hover:bg-stone-50 border-stone-200'}`}>
+                                                  <button onClick={() => loadPresetIntoDraft(preset)} className="text-sm font-bold text-stone-700 truncate text-left flex-1 flex items-center gap-2">
+                                                      {preset.name}
+                                                      {preset.isDefault && <span className="text-[10px] bg-yellow-400 text-yellow-900 px-1.5 py-0.5 rounded-full">Default</span>}
+                                                  </button>
+                                                  
+                                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                      <button 
+                                                        onClick={() => handleSetDefaultPreset(preset.id)} 
+                                                        className={`p-1.5 rounded transition-colors ${preset.isDefault ? 'text-yellow-500' : 'text-stone-300 hover:text-yellow-500 hover:bg-yellow-50'}`}
+                                                        title="Set as Default"
+                                                      >
+                                                          <Star size={14} fill={preset.isDefault ? "currentColor" : "none"} />
+                                                      </button>
+                                                      <button 
+                                                        onClick={() => handleDeletePreset(preset.id)} 
+                                                        className="p-1.5 rounded text-stone-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                                        title="Delete"
+                                                      >
+                                                          <Trash2 size={14}/>
+                                                      </button>
+                                                  </div>
                                               </div>
                                           ))}
                                       </div>
@@ -1281,8 +1402,9 @@ const Notebook: React.FC<NotebookProps> = ({
       )}
 
       {/* --- Confirmation Modal --- */}
+      {/* ... Confirmation Modal ... */}
       {modalConfig.isOpen && (
-        <div className="fixed inset-0 z-[1100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 pointer-events-auto" onClick={() => setModalConfig({ ...modalConfig, isOpen: false })}>
+        <div className="fixed inset-0 z-[1100] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4 pointer-events-auto" onClick={() => setModalConfig({ ...modalConfig, isOpen: false })}>
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
                 
                 {modalConfig.isCustomContent ? (

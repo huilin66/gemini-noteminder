@@ -45,6 +45,7 @@ export interface NotePreset {
   styleVariant: NoteStyleVariant;
   textureVariant: NoteTexture;
   decorationPosition: NoteDecorationPosition;
+  isDefault?: boolean;
 }
 
 export interface Note {
