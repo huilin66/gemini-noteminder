@@ -61,7 +61,11 @@ export const translations = {
       apiKey: "API Key",
       modelName: "Model Name",
       customPrompt: "Custom System Prompt",
-      save: "Save Config"
+      save: "Save Config",
+      autoSave: "Auto-Save Interval (XLSX)",
+      autoSaveDesc: "Download XLSX backup automatically.",
+      minutes: "min",
+      off: "Off"
     },
     dataMenu: {
       openFolder: "Set Data Folder",
@@ -198,6 +202,7 @@ export const translations = {
         update: {
           title: "Update History",
           items: [
+            "v4.6.0: Added Auto-Save configuration in Settings.",
             "v4.5.0: Added LLM configuration, Split Date/Time pickers, Notebook action buttons, and weekly export updates.",
             "v4.4.0: Added XLSX batch export, data folder settings.",
             "v4.3.0: Enhanced settings, interactive bookshelf, and UI improvements.",
@@ -266,7 +271,11 @@ export const translations = {
       apiKey: "API Key",
       modelName: "模型名称",
       customPrompt: "自定义提示词 (Prompt)",
-      save: "保存配置"
+      save: "保存配置",
+      autoSave: "自动保存间隔 (XLSX)",
+      autoSaveDesc: "定时自动下载 XLSX 备份文件。",
+      minutes: "分钟",
+      off: "关闭"
     },
     dataMenu: {
       openFolder: "设置数据保存文件夹",
@@ -402,6 +411,7 @@ export const translations = {
         update: {
           title: "更新日志",
           items: [
+            "v4.6.0: 增加自动保存 (Auto-Save) 设置。",
             "v4.5.0: 增加 LLM 多模型配置，分离日期/时间选择器，笔记本增加状态操作按钮，周工时导出优化。",
             "v4.4.0: 增加 XLSX 批量导入导出功能，完善帮助文档，优化界面细节。",
             "v4.3.0: 增强设置功能，交互式书架，UI 改进。",

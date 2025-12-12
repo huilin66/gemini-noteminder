@@ -29,6 +29,10 @@ interface NotebookProps {
   onPinNote: (id: string, x?: number, y?: number) => void;
   onBatchPinNotes: (ids: string[]) => void;
   onReorderNotes: (fromIndex: number, toIndex: number) => void;
+  onBatchImport: (newGroups: Group[], newNotes: Note[]) => void; 
+  onExportXLSX: () => void; 
+  autoSaveInterval: number; // New prop
+  onSetAutoSaveInterval: (minutes: number) => void; // New prop
   
   bookshelfTheme: ThemeConfig;
   setBookshelfTheme: (t: ThemeConfig) => void;
@@ -96,6 +100,10 @@ const Notebook: React.FC<NotebookProps> = ({
   onPinNote,
   onBatchPinNotes,
   onReorderNotes,
+  onBatchImport,
+  onExportXLSX,
+  autoSaveInterval,
+  onSetAutoSaveInterval,
   bookshelfTheme,
   setBookshelfTheme,
   onResetBookshelfTheme,
@@ -632,36 +640,6 @@ const Notebook: React.FC<NotebookProps> = ({
     if (csvInputRef.current) csvInputRef.current.value = '';
   };
 
-  const exportXLSX = () => {
-      if (typeof XLSX === 'undefined') {
-          alert("XLSX library not loaded.");
-          return;
-      }
-
-      const workbook = XLSX.utils.book_new();
-
-      groups.forEach(group => {
-          const groupNotes = notes.filter(n => n.groupId === group.id);
-          const data = groupNotes.map(n => ({
-              Content: n.content,
-              Added: new Date(n.createdAt).toISOString(),
-              Start: n.startTime ? new Date(n.startTime).toISOString() : '',
-              End: n.endTime ? new Date(n.endTime).toISOString() : '',
-              Location: n.location,
-              Status: n.status,
-              Importance: n.importance,
-              Reminder: n.isReminderOn ? 'Yes' : 'No',
-              ReminderTime: n.reminderTime ? new Date(n.reminderTime).toISOString() : ''
-          }));
-
-          const worksheet = XLSX.utils.json_to_sheet(data);
-          const sheetName = group.name.replace(/[\[\]\*\/\\\?]/g, '').slice(0, 31) || `Group ${group.id.slice(0,4)}`;
-          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-      });
-
-      XLSX.writeFile(workbook, "NoteMinder_Backup.xlsx");
-  };
-
   const importXLSX = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -677,17 +655,23 @@ const Notebook: React.FC<NotebookProps> = ({
           const workbook = XLSX.read(data, { type: 'binary' });
           
           let importCount = 0;
+          const importedGroups: Group[] = [];
+          const importedNotes: Note[] = [];
 
           workbook.SheetNames.forEach((sheetName: string) => {
+              // 1. Create a Group (Notebook) for each sheet
+              const newGroupId = uuidv4();
+              importedGroups.push({ id: newGroupId, name: sheetName });
+
               const worksheet = workbook.Sheets[sheetName];
               const json = XLSX.utils.sheet_to_json(worksheet);
               
               json.forEach((row: any) => {
                   const now = Date.now();
-                  onAddNote({
+                  importedNotes.push({
                       id: uuidv4(),
-                      groupId: activeGroupId, 
-                      content: row.Content ? `[${sheetName}] ${row.Content}` : 'Empty',
+                      groupId: newGroupId, // Assign to the new group
+                      content: row.Content || 'Empty',
                       createdAt: row.Added ? new Date(row.Added).getTime() : now,
                       startTime: row.Start ? new Date(row.Start).getTime() : undefined,
                       endTime: row.End ? new Date(row.End).getTime() : undefined,
@@ -707,7 +691,14 @@ const Notebook: React.FC<NotebookProps> = ({
                   importCount++;
               });
           });
-          alert(`Imported ${importCount} items from XLSX into current notebook.`);
+          
+          // Batch update App state
+          if (importedGroups.length > 0) {
+              onBatchImport(importedGroups, importedNotes);
+              alert(`Imported ${importCount} items into ${importedGroups.length} notebooks (from sheets).`);
+          } else {
+              alert("No valid sheets found in XLSX.");
+          }
       };
       reader.readAsBinaryString(file);
       if (xlsxInputRef.current) xlsxInputRef.current.value = '';
@@ -1118,7 +1109,7 @@ const Notebook: React.FC<NotebookProps> = ({
 
                            {/* XLSX Options */}
                            <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider border-t border-stone-100 mt-1">XLSX (Excel)</div>
-                           <button onClick={exportXLSX} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700">
+                           <button onClick={onExportXLSX} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700">
                               <Sheet size={14} className="text-green-600" /> {t.dataMenu.exportXLSX}
                            </button>
                            <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700">
@@ -1321,9 +1312,35 @@ const Notebook: React.FC<NotebookProps> = ({
                                       <button onClick={() => setLanguage('zh')} className={`px-4 py-2 rounded-lg border text-sm font-bold ${language === 'zh' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'}`}>中文</button>
                                   </div>
                               </div>
-                              <div className="p-4 bg-stone-50 rounded-xl text-stone-500 text-sm leading-relaxed border border-stone-100">
+
+                              {/* --- Auto Save Settings --- */}
+                              <div>
+                                  <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.autoSave}</label>
+                                  <div className="flex items-center gap-2 bg-stone-50 p-3 rounded-lg border border-stone-200">
+                                      <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                                          <Save size={18} />
+                                      </div>
+                                      <select 
+                                          value={autoSaveInterval} 
+                                          onChange={(e) => onSetAutoSaveInterval(parseInt(e.target.value))}
+                                          className="p-2 rounded border bg-white text-stone-700 text-sm font-bold outline-none focus:border-blue-500 cursor-pointer"
+                                      >
+                                          <option value={0}>{t.settingsModal.off}</option>
+                                          <option value={5}>5 {t.settingsModal.minutes}</option>
+                                          <option value={15}>15 {t.settingsModal.minutes}</option>
+                                          <option value={30}>30 {t.settingsModal.minutes}</option>
+                                          <option value={60}>60 {t.settingsModal.minutes} (1h)</option>
+                                          <option value={120}>120 {t.settingsModal.minutes} (2h)</option>
+                                      </select>
+                                      <div className="text-xs text-stone-500 ml-2 border-l pl-2 border-stone-300">
+                                          {t.settingsModal.autoSaveDesc}
+                                      </div>
+                                  </div>
+                              </div>
+
+                              <div className="p-4 bg-stone-50 rounded-xl text-stone-500 text-sm leading-relaxed border border-stone-100 mt-4">
                                   <p>{t.settingsModal.generatedBy}</p>
-                                  <p className="mt-2 text-xs opacity-50">Version 4.5.1</p>
+                                  <p className="mt-2 text-xs opacity-50">Version 4.6.0</p>
                               </div>
                           </div>
                       )}

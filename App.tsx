@@ -6,6 +6,9 @@ import { Note, NoteStatus, NoteImportance, Group, ThemeConfig, ViewState, Langua
 import { Bell, Clock, X, ArrowLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
+// Use global XLSX variable from the CDN script
+declare const XLSX: any;
+
 const STORAGE_KEY = 'noteminder_notes_v4'; 
 const GROUPS_KEY = 'noteminder_groups_v1';
 const THEME_KEY = 'noteminder_theme_v2';
@@ -13,6 +16,7 @@ const LANG_KEY = 'noteminder_lang_v1';
 const PRESETS_KEY = 'noteminder_presets_v1';
 const BOOKSHELF_KEY = 'noteminder_bookshelf_v2';
 const LLM_CONFIG_KEY = 'noteminder_llm_config_v1';
+const AUTOSAVE_KEY = 'noteminder_autosave_v1';
 
 const DEFAULT_GROUP_ID = 'default';
 
@@ -76,6 +80,7 @@ const App: React.FC = () => {
   
   const [books, setBooks] = useState<SmartBook[]>(DEFAULT_BOOKS);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>(DEFAULT_LLM_CONFIG);
+  const [autoSaveInterval, setAutoSaveInterval] = useState<number>(60); // Default 60 minutes
 
   const [viewState, setViewState] = useState<ViewState>({
     showGroups: true,
@@ -97,6 +102,18 @@ const App: React.FC = () => {
   const titleIntervalRef = useRef<number | null>(null);
   const originalTitle = "Gemini NoteMinder";
 
+  // Refs to hold latest state for the auto-backup interval
+  const notesRef = useRef(notes);
+  const groupsRef = useRef(groups);
+
+  useEffect(() => {
+      notesRef.current = notes;
+  }, [notes]);
+
+  useEffect(() => {
+      groupsRef.current = groups;
+  }, [groups]);
+
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted') {
       Notification.requestPermission();
@@ -114,6 +131,7 @@ const App: React.FC = () => {
     const savedPresets = localStorage.getItem(PRESETS_KEY);
     const savedBooks = localStorage.getItem(BOOKSHELF_KEY);
     const savedLlmConfig = localStorage.getItem(LLM_CONFIG_KEY);
+    const savedAutoSave = localStorage.getItem(AUTOSAVE_KEY);
     
     if (savedGroups) {
       setGroups(JSON.parse(savedGroups));
@@ -166,6 +184,12 @@ const App: React.FC = () => {
         } catch(e) {}
     }
 
+    if (savedAutoSave) {
+        try {
+            setAutoSaveInterval(parseInt(savedAutoSave, 10));
+        } catch(e) {}
+    }
+
     if (savedTheme) {
       const parsedTheme = JSON.parse(savedTheme);
       if (parsedTheme.desktop) setBookshelfTheme(parsedTheme.desktop);
@@ -191,8 +215,9 @@ const App: React.FC = () => {
       localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
       localStorage.setItem(BOOKSHELF_KEY, JSON.stringify(books));
       localStorage.setItem(LLM_CONFIG_KEY, JSON.stringify(llmConfig));
+      localStorage.setItem(AUTOSAVE_KEY, autoSaveInterval.toString());
     }
-  }, [notes, groups, bookshelfTheme, notebookTheme, language, presets, books, llmConfig, isLoaded]);
+  }, [notes, groups, bookshelfTheme, notebookTheme, language, presets, books, llmConfig, autoSaveInterval, isLoaded]);
 
   // Ensure Desktop Stickies and Today Stickies are mutually exclusive
   useEffect(() => {
@@ -206,6 +231,22 @@ const App: React.FC = () => {
           setViewState(prev => ({ ...prev, showTodayStickies: false }));
       }
   }, [viewState.showStickies]);
+
+  // --- Auto-Backup Timer (Dynamic Interval) ---
+  useEffect(() => {
+      if (autoSaveInterval <= 0) return; // 0 = Off
+
+      const intervalMs = autoSaveInterval * 60 * 1000;
+      
+      const backupInterval = setInterval(() => {
+          if (typeof XLSX === 'undefined') return;
+          
+          console.log(`Triggering auto-backup (${autoSaveInterval} min interval)...`);
+          handleExportXLSX(true); // true = auto mode
+      }, intervalMs);
+
+      return () => clearInterval(backupInterval);
+  }, [autoSaveInterval]); // Re-run whenever the interval setting changes
 
   useEffect(() => {
     const checkReminders = () => {
@@ -292,6 +333,61 @@ const App: React.FC = () => {
   const addNote = (newNote: Note) => {
     setMaxZIndex(prev => prev + 1);
     setNotes(prev => [newNote, ...prev]);
+  };
+
+  // --- XLSX Logic moved to App level ---
+  const handleExportXLSX = (isAuto = false) => {
+      if (typeof XLSX === 'undefined') {
+          if (!isAuto) alert("XLSX library not loaded.");
+          return;
+      }
+
+      const currentGroups = groupsRef.current;
+      const currentNotes = notesRef.current;
+
+      const workbook = XLSX.utils.book_new();
+
+      currentGroups.forEach(group => {
+          const groupNotes = currentNotes.filter(n => n.groupId === group.id);
+          const data = groupNotes.map(n => ({
+              Content: n.content,
+              Added: new Date(n.createdAt).toISOString(),
+              Start: n.startTime ? new Date(n.startTime).toISOString() : '',
+              End: n.endTime ? new Date(n.endTime).toISOString() : '',
+              Location: n.location,
+              Status: n.status,
+              Importance: n.importance,
+              Reminder: n.isReminderOn ? 'Yes' : 'No',
+              ReminderTime: n.reminderTime ? new Date(n.reminderTime).toISOString() : ''
+          }));
+
+          const worksheet = XLSX.utils.json_to_sheet(data);
+          // Sanitize sheet name (max 31 chars, no invalid chars)
+          const sheetName = group.name.replace(/[\[\]\*\/\\\?]/g, '').slice(0, 31) || `Group ${group.id.slice(0,4)}`;
+          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      });
+
+      const filename = isAuto ? `NoteMinder_AutoBackup_${new Date().getHours()}h.xlsx` : "NoteMinder_Backup.xlsx";
+      XLSX.writeFile(workbook, filename);
+  };
+
+  // --- NEW: Batch Import Handler (Multi-sheet aware) ---
+  const handleBatchImport = (newGroups: Group[], newNotes: Note[]) => {
+      // 1. Add new groups
+      setGroups(prev => {
+          // Add new groups, avoid duplicate IDs (though new UUIDs shouldn't clash)
+          // We assume imported groups are authoritative for their content
+          const uniqueNewGroups = newGroups.filter(ng => !prev.some(og => og.id === ng.id));
+          return [...prev, ...uniqueNewGroups];
+      });
+
+      // 2. Add new notes
+      setNotes(prev => [...prev, ...newNotes]);
+
+      // 3. Switch view to the first imported group if available
+      if (newGroups.length > 0) {
+          setActiveGroupId(newGroups[0].id);
+      }
   };
 
   const updateNote = (updatedNote: Note) => {
@@ -479,6 +575,10 @@ const App: React.FC = () => {
            onPinNote={togglePin}
            onBatchPinNotes={batchPinNotes}
            onReorderNotes={reorderNotes}
+           onBatchImport={handleBatchImport}
+           onExportXLSX={() => handleExportXLSX(false)}
+           autoSaveInterval={autoSaveInterval} // Pass state
+           onSetAutoSaveInterval={setAutoSaveInterval} // Pass setter
            bookshelfTheme={bookshelfTheme}
            setBookshelfTheme={setBookshelfTheme}
            onResetBookshelfTheme={handleResetBookshelfTheme}
