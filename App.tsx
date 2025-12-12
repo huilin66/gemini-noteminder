@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Notebook from './components/Notebook';
 import StickyNote from './components/StickyNote';
 import BookshelfBackground from './components/BookshelfBackground';
-import { Note, NoteStatus, NoteImportance, Group, ThemeConfig, ViewState, Language, NotePreset, SmartBook } from './types';
+import { Note, NoteStatus, NoteImportance, Group, ThemeConfig, ViewState, Language, NotePreset, SmartBook, LLMConfig } from './types';
 import { Bell, Clock, X, ArrowLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,6 +12,7 @@ const THEME_KEY = 'noteminder_theme_v2';
 const LANG_KEY = 'noteminder_lang_v1';
 const PRESETS_KEY = 'noteminder_presets_v1';
 const BOOKSHELF_KEY = 'noteminder_bookshelf_v2';
+const LLM_CONFIG_KEY = 'noteminder_llm_config_v1';
 
 const DEFAULT_GROUP_ID = 'default';
 
@@ -51,6 +52,17 @@ const DEFAULT_PRESETS: NotePreset[] = [
     }
 ];
 
+const DEFAULT_LLM_CONFIG: LLMConfig = {
+    provider: 'gemini',
+    apiKey: '',
+    model: 'gemini-2.5-flash',
+    customPrompt: `Analyze the following user input for a todo list item. Extract the core task content, any specific event time mentioned, the location, and a suggested urgency status.
+User Input: "{{INPUT}}"
+If no specific time is mentioned, leave eventTime null.
+If no location is mentioned, leave location null.
+Status should be one of: PENDING, URGENT, DONE. Default to PENDING.`
+};
+
 // Favicon Data URIs
 const FAVICON_NORMAL = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect x=%2210%22 y=%2210%22 width=%2280%22 height=%2280%22 fill=%22%23fef3c7%22 stroke=%22%23d1d5db%22 stroke-width=%225%22/><path d=%22M70 90 L90 70 L70 70 Z%22 fill=%22%23fbbf24%22/></svg>";
 const FAVICON_ALARM = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2255%22 r=%2235%22 fill=%22white%22 stroke=%22%23ef4444%22 stroke-width=%225%22/><path d=%22M50 55 L50 35 M50 55 L65 65%22 stroke=%22%23374151%22 stroke-width=%224%22 stroke-linecap=%22round%22/><path d=%22M20 20 L30 30 M80 20 L70 30%22 stroke=%22%23ef4444%22 stroke-width=%226%22 stroke-linecap=%22round%22/><rect x=%2245%22 y=%2210%22 width=%2210%22 height=%2210%22 fill=%22%23ef4444%22/></svg>";
@@ -63,6 +75,7 @@ const App: React.FC = () => {
   const [activeGroupId, setActiveGroupId] = useState<string>(DEFAULT_GROUP_ID);
   
   const [books, setBooks] = useState<SmartBook[]>(DEFAULT_BOOKS);
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>(DEFAULT_LLM_CONFIG);
 
   const [viewState, setViewState] = useState<ViewState>({
     showGroups: true,
@@ -100,6 +113,7 @@ const App: React.FC = () => {
     const savedLang = localStorage.getItem(LANG_KEY);
     const savedPresets = localStorage.getItem(PRESETS_KEY);
     const savedBooks = localStorage.getItem(BOOKSHELF_KEY);
+    const savedLlmConfig = localStorage.getItem(LLM_CONFIG_KEY);
     
     if (savedGroups) {
       setGroups(JSON.parse(savedGroups));
@@ -146,6 +160,12 @@ const App: React.FC = () => {
         } catch (e) {}
     }
 
+    if (savedLlmConfig) {
+        try {
+            setLlmConfig({ ...DEFAULT_LLM_CONFIG, ...JSON.parse(savedLlmConfig) });
+        } catch(e) {}
+    }
+
     if (savedTheme) {
       const parsedTheme = JSON.parse(savedTheme);
       if (parsedTheme.desktop) setBookshelfTheme(parsedTheme.desktop);
@@ -170,8 +190,9 @@ const App: React.FC = () => {
       localStorage.setItem(LANG_KEY, language);
       localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
       localStorage.setItem(BOOKSHELF_KEY, JSON.stringify(books));
+      localStorage.setItem(LLM_CONFIG_KEY, JSON.stringify(llmConfig));
     }
-  }, [notes, groups, bookshelfTheme, notebookTheme, language, presets, books, isLoaded]);
+  }, [notes, groups, bookshelfTheme, notebookTheme, language, presets, books, llmConfig, isLoaded]);
 
   // Ensure Desktop Stickies and Today Stickies are mutually exclusive
   useEffect(() => {
@@ -471,6 +492,8 @@ const App: React.FC = () => {
            setLanguage={setLanguage}
            books={books}
            onUpdateBooks={setBooks}
+           llmConfig={llmConfig}
+           onUpdateLlmConfig={setLlmConfig}
          />
       </div>
 

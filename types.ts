@@ -110,3 +110,13 @@ export interface SmartBook {
   position: number;
   spineDetail?: number; // 0: none, 1: top lines, 2: bottom lines, 3: both
 }
+
+export type LLMProvider = 'gemini' | 'openai' | 'deepseek' | 'custom';
+
+export interface LLMConfig {
+  provider: LLMProvider;
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+  customPrompt?: string;
+}

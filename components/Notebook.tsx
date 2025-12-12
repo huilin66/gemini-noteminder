@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme } from '../types';
-import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet } from 'lucide-react';
+import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../types';
+import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu } from 'lucide-react';
 import { parseNoteWithAI } from '../services/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 import { translations } from '../utils/i18n';
@@ -46,6 +46,9 @@ interface NotebookProps {
 
   books: SmartBook[];
   onUpdateBooks: (books: SmartBook[]) => void;
+
+  llmConfig: LLMConfig;
+  onUpdateLlmConfig: (config: LLMConfig) => void;
 }
 
 const formatDate = (ts?: number) => {
@@ -105,7 +108,9 @@ const Notebook: React.FC<NotebookProps> = ({
   language,
   setLanguage,
   books,
-  onUpdateBooks
+  onUpdateBooks,
+  llmConfig,
+  onUpdateLlmConfig
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
@@ -125,6 +130,12 @@ const Notebook: React.FC<NotebookProps> = ({
   
   const [newPresetName, setNewPresetName] = useState('');
   
+  // Weekly Export State
+  const [showExportRecords, setShowExportRecords] = useState(false);
+  const [workDayStart, setWorkDayStart] = useState("09:00");
+  const [workDayEnd, setWorkDayEnd] = useState("21:00");
+  const [exportResult, setExportResult] = useState("");
+
   // State for Preset Editor in Settings
   const [draftPreset, setDraftPreset] = useState<{
       theme: NoteTheme;
@@ -147,15 +158,15 @@ const Notebook: React.FC<NotebookProps> = ({
   });
   
   const [colWidths, setColWidths] = useState<ColumnWidths>({
-    content: 400,
+    content: 350,
     createdAt: 110,
     startTime: 110,
     endTime: 110,
-    location: 100,
+    location: 90,
     importance: 70,
     status: 90,
     reminder: 110,
-    actions: 80
+    actions: 140 
   });
   const [resizingCol, setResizingCol] = useState<keyof ColumnWidths | null>(null);
   const resizeStartX = useRef<number>(0);
@@ -211,7 +222,7 @@ const Notebook: React.FC<NotebookProps> = ({
 
         filtered = filtered.filter(n => {
             if (!n.startTime) return false;
-            // Overlap logic: Event Start <= Today End AND Event End >= Today Start
+            // Overlap logic
             const end = n.endTime || n.startTime;
             return n.startTime <= tsEnd && end >= tsStart;
         });
@@ -279,6 +290,13 @@ const Notebook: React.FC<NotebookProps> = ({
     setEditingId(null);
   };
 
+  const updateStatus = (id: string, newStatus: NoteStatus) => {
+      const note = notes.find(n => n.id === id);
+      if (note) {
+          onUpdateNote({ ...note, status: newStatus });
+      }
+  };
+
   const createEmptyEvent = () => {
     const now = Date.now();
     const id = uuidv4();
@@ -316,23 +334,19 @@ const Notebook: React.FC<NotebookProps> = ({
     onAddNote(defaultNote);
   };
 
-  // ... (Existing preset handlers remain the same) ...
   const handleCreatePreset = () => {
       if(!newPresetName) return;
-      
       const existing = presets.find(p => p.name === newPresetName);
       if (existing) {
           alert("A style with this name already exists. Please choose a different name.");
           return;
       }
-      
       const newPreset: NotePreset = {
           id: uuidv4(),
           name: newPresetName,
           ...draftPreset,
-          isDefault: presets.length === 0 // If it's the first one, make it default
+          isDefault: presets.length === 0
       };
-      
       setPresets([...presets, newPreset]);
       setNewPresetName('');
   };
@@ -366,7 +380,7 @@ const Notebook: React.FC<NotebookProps> = ({
   const handleAIParse = async () => {
     if (!formData.content) return;
     setIsProcessingAI(true);
-    const parsed = await parseNoteWithAI(formData.content);
+    const parsed = await parseNoteWithAI(formData.content, llmConfig);
     setIsProcessingAI(false);
     
     if (parsed) {
@@ -460,7 +474,87 @@ const Notebook: React.FC<NotebookProps> = ({
     );
   };
 
-  // --- Import/Export Logic ---
+  const handleAddNewBook = () => {
+      const positions = books.map(b => b.position);
+      let nextPos = 0;
+      while(positions.includes(nextPos)) nextPos++;
+      
+      const newBook: SmartBook = {
+          id: Date.now().toString(),
+          title: 'New Book',
+          url: 'https://',
+          color: '#607d8b',
+          position: nextPos,
+          spineDetail: Math.floor(Math.random() * 4)
+      };
+      onUpdateBooks([...books, newBook]);
+  };
+
+  // --- Export Records Logic ---
+  const generateWeeklyReport = () => {
+      const now = new Date();
+      // Calculate start of week (Monday)
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1); 
+      const startOfWeek = new Date(now.setDate(diff));
+      startOfWeek.setHours(0, 0, 0, 0);
+      
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      endOfWeek.setHours(23, 59, 59, 999);
+
+      // Parse work hours
+      const [startH, startM] = workDayStart.split(':').map(Number);
+      const [endH, endM] = workDayEnd.split(':').map(Number);
+
+      const relevantNotes = currentGroupNotes.filter(n => {
+          if (!n.startTime) return false;
+          const end = n.endTime || n.startTime;
+          return n.startTime <= endOfWeek.getTime() && end >= startOfWeek.getTime();
+      });
+
+      let reportText = "";
+
+      relevantNotes.forEach(n => {
+          if (!n.startTime) return;
+          const end = n.endTime || n.startTime;
+          
+          let totalMinutes = 0;
+          
+          const currentDay = new Date(n.startTime);
+          const lastDay = new Date(end);
+          const loopDay = new Date(currentDay);
+          loopDay.setHours(0,0,0,0);
+          
+          while (loopDay <= lastDay) {
+              const workStart = new Date(loopDay);
+              workStart.setHours(startH, startM, 0, 0);
+              
+              const workEnd = new Date(loopDay);
+              workEnd.setHours(endH, endM, 0, 0);
+
+              const overlapStart = Math.max(n.startTime, workStart.getTime());
+              const overlapEnd = Math.min(end, workEnd.getTime());
+
+              if (overlapEnd > overlapStart) {
+                  totalMinutes += (overlapEnd - overlapStart) / (1000 * 60);
+              }
+              loopDay.setDate(loopDay.getDate() + 1);
+          }
+
+          const hours = Math.ceil(totalMinutes / 30) * 0.5;
+          const startDateStr = new Date(n.startTime).toLocaleDateString([], {month:'numeric', day:'numeric'});
+          const endDateStr = new Date(end).toLocaleDateString([], {month:'numeric', day:'numeric'});
+          const dateRange = startDateStr === endDateStr ? startDateStr : `${startDateStr}-${endDateStr}`;
+
+          if (hours > 0) {
+              reportText += `${n.content}；${dateRange}， ${hours}h\n`;
+          }
+      });
+
+      if (!reportText) reportText = "No events found in work hours for this week.";
+      setExportResult(reportText);
+  };
 
   const exportCSV = () => {
     const groupName = groups.find(g => g.id === activeGroupId)?.name || 'Export';
@@ -561,7 +655,6 @@ const Notebook: React.FC<NotebookProps> = ({
           }));
 
           const worksheet = XLSX.utils.json_to_sheet(data);
-          // Safe sheet name length is 31 chars
           const sheetName = group.name.replace(/[\[\]\*\/\\\?]/g, '').slice(0, 31) || `Group ${group.id.slice(0,4)}`;
           XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
       });
@@ -586,40 +679,6 @@ const Notebook: React.FC<NotebookProps> = ({
           let importCount = 0;
 
           workbook.SheetNames.forEach((sheetName: string) => {
-              // Find or Create group
-              let targetGroupId = groups.find(g => g.name === sheetName)?.id;
-              
-              if (!targetGroupId) {
-                  // Create new group if name doesn't match existing
-                  // Note: In a real app we might want to ask user, here we create it.
-                  // But since we can't easily update groups inside this loop without causing state issues with closures,
-                  // we might try to find a close match or just dump into active group if forced.
-                  // For better UX, let's map to existing groups by name, or skip.
-                  // Actually, to properly create groups we need to call onCreateGroup but that generates a default name.
-                  // Let's assume we import into Active Group if single sheet, or try to match names.
-                  // For simplicity in this version: Import all into Active Group with a tag, OR simplistic approach:
-                  // Just parse and dump everything into the Active Group for now, appending the Sheet Name to content?
-                  // Better: Just handle the Active Group import from the active sheet?
-                  
-                  // Refined requirement: "Batch import/export ALL notebooks".
-                  // This implies restoring the structure.
-                  // Since `onUpdateGroup` and `onCreateGroup` are async-like state updates, doing this in a loop is hard.
-                  // Strategy: We will import all items into the *current* active group but tag them, OR just parse the first sheet.
-                  // LIMITATION: Creating groups dynamically here is complex due to React state. 
-                  // Workaround: We will import data into the *Active Group* from the *First Sheet* only, OR
-                  // if we want to be fancy, we try to match the active group name. 
-                  // Let's stick to importing from the FIRST sheet into ACTIVE group to avoid chaos, 
-                  // OR allow user to pick. 
-                  // Actually, standard behavior for "Batch Import" implies restoring backup.
-                  // I'll assume standard CSV-like behavior: Import rows from the first sheet into active group.
-                  // Wait, "将所有notebooks中的事项批量导入导出" implies full structure.
-                  // Okay, I will try to match group IDs if stored? No, they aren't stored in my simple export.
-                  // Let's just import all rows from all sheets into the Active Group for safety.
-              }
-              
-              // Simplification: We will read ALL sheets and put them into the ACTIVE notebook.
-              // Why? Because creating dynamic groups on the fly in this component structure is tricky without a bulk-set-state method.
-              
               const worksheet = workbook.Sheets[sheetName];
               const json = XLSX.utils.sheet_to_json(worksheet);
               
@@ -627,8 +686,8 @@ const Notebook: React.FC<NotebookProps> = ({
                   const now = Date.now();
                   onAddNote({
                       id: uuidv4(),
-                      groupId: activeGroupId, // Force to active group for now
-                      content: row.Content ? `[${sheetName}] ${row.Content}` : 'Empty', // Prefix with sheet name
+                      groupId: activeGroupId, 
+                      content: row.Content ? `[${sheetName}] ${row.Content}` : 'Empty',
                       createdAt: row.Added ? new Date(row.Added).getTime() : now,
                       startTime: row.Start ? new Date(row.Start).getTime() : undefined,
                       endTime: row.End ? new Date(row.End).getTime() : undefined,
@@ -648,7 +707,6 @@ const Notebook: React.FC<NotebookProps> = ({
                   importCount++;
               });
           });
-          
           alert(`Imported ${importCount} items from XLSX into current notebook.`);
       };
       reader.readAsBinaryString(file);
@@ -675,23 +733,6 @@ const Notebook: React.FC<NotebookProps> = ({
       setNotebookTheme({ ...notebookTheme, type: 'image', value: reader.result as string });
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleAddNewBook = () => {
-      // Find a free position or just append
-      const positions = books.map(b => b.position);
-      let nextPos = 0;
-      while(positions.includes(nextPos)) nextPos++;
-      
-      const newBook: SmartBook = {
-          id: Date.now().toString(),
-          title: 'New Book',
-          url: 'https://',
-          color: '#607d8b',
-          position: nextPos,
-          spineDetail: Math.floor(Math.random() * 4)
-      };
-      onUpdateBooks([...books, newBook]);
   };
 
   const handleMouseDownResize = (e: React.MouseEvent, col: keyof ColumnWidths) => {
@@ -743,7 +784,6 @@ const Notebook: React.FC<NotebookProps> = ({
     };
   }, [resizingCol, isResizingGroups]);
 
-  // Updated to support opacity on the background layer directly
   const getContainerStyle = (theme: ThemeConfig) => {
       const style: React.CSSProperties = {
           position: 'absolute',
@@ -848,7 +888,6 @@ const Notebook: React.FC<NotebookProps> = ({
      </div>
   );
 
-  // --- Render Dummy Preview Note ---
   const renderPreviewNote = () => {
       const dummyNote: Note = {
           id: 'preview',
@@ -861,10 +900,6 @@ const Notebook: React.FC<NotebookProps> = ({
           importance: NoteImportance.MEDIUM,
           isReminderOn: false,
           isPinned: true,
-          // Calculate Center Position for 220x220 note in 300x300 container
-          // Container: 300x300
-          // Note scaled: ~220x220 (approx, scale-75 of 280ish)
-          // Actually let's just center it
           position: { x: 35, y: 40 },
           zIndex: 1,
           theme: draftPreset.theme,
@@ -889,66 +924,35 @@ const Notebook: React.FC<NotebookProps> = ({
   }
 
   return (
-    // CRITICAL: pointer-events-none ensures clicks pass through empty space to the Bookshelf
     <div className="flex w-full h-full max-w-[1800px] mx-auto transition-all relative justify-center pointer-events-none">
       
-      {/* ... Sidebar and Panels ... */}
-      
-      {/* --- Sidebar (3-Groups) --- */}
-      {/* CRITICAL: pointer-events-auto ensures the sidebar is clickable */}
+      {/* ... Sidebar ... */}
       <div className="fixed left-0 top-1/2 -translate-y-1/2 w-20 z-[900] flex flex-col items-center justify-start py-6 gap-0 -translate-x-[65%] hover:translate-x-0 transition-transform duration-300 bg-stone-900/80 backdrop-blur-md rounded-r-2xl shadow-2xl border-y border-r border-white/10 group pointer-events-auto">
+          {/* ... Icons ... */}
           <div className="absolute right-0 top-0 bottom-0 w-8 cursor-pointer flex items-center justify-center">
               <div className="w-1 h-12 bg-white/30 rounded-full group-hover:bg-white/50 transition-colors"></div>
           </div>
           <div className="flex flex-col items-center pr-2 w-full gap-0">
-            {/* GROUP 1: Workspace */}
             <SidebarIcon icon={BookOpen} label={t.sidebar.bookshelf} isActive={!viewState.showGroups && !viewState.showNotebook} onClick={() => setViewState(p => ({ ...p, showGroups: false, showNotebook: false }))} />
-            
             <SidebarIcon icon={Library} label={t.sidebar.notebooks} isActive={viewState.showGroups} onClick={() => setViewState(p => ({ ...p, showGroups: !p.showGroups }))} />
             <SidebarIcon icon={Table} label={t.sidebar.notebook} isActive={viewState.showNotebook} onClick={() => setViewState(p => ({ ...p, showNotebook: !p.showNotebook }))} />
-            
-            {/* Desktop Stickies */}
-            <SidebarIcon 
-                icon={StickyNoteIcon} 
-                label={t.sidebar.note} 
-                isActive={viewState.showStickies} 
-                onClick={() => setViewState(p => ({ ...p, showStickies: !p.showStickies, showTodayStickies: false }))} 
-                glow={viewState.showStickies && notes.some(n => n.isPinned)} 
-            />
-            
+            <SidebarIcon icon={StickyNoteIcon} label={t.sidebar.note} isActive={viewState.showStickies} onClick={() => setViewState(p => ({ ...p, showStickies: !p.showStickies, showTodayStickies: false }))} glow={viewState.showStickies && notes.some(n => n.isPinned)} />
             <div className="w-8 h-px bg-white/20 my-3"></div>
-            
-            {/* GROUP 2: Focus */}
             <SidebarIcon icon={Calendar} label={t.sidebar.today} isActive={showTodayOnly} onClick={() => setShowTodayOnly(!showTodayOnly)} />
-            
-            <SidebarIcon 
-                icon={ClipboardList} 
-                label={t.sidebar.todayStickies} 
-                isActive={viewState.showTodayStickies} 
-                onClick={() => setViewState(p => ({ ...p, showTodayStickies: !p.showTodayStickies, showStickies: false }))} 
-            />
-
+            <SidebarIcon icon={ClipboardList} label={t.sidebar.todayStickies} isActive={viewState.showTodayStickies} onClick={() => setViewState(p => ({ ...p, showTodayStickies: !p.showTodayStickies, showStickies: false }))} />
             <div className="w-8 h-px bg-white/20 my-3"></div>
-
-            {/* GROUP 3: System */}
             <SidebarIcon icon={Settings} label={t.sidebar.settings} isActive={showSettingsModal} onClick={handleOpenSettings} />
             <SidebarIcon icon={HelpCircle} label={t.sidebar.help} isActive={false} onClick={showHelp} />
           </div>
       </div>
 
       {/* --- Groups Panel --- */}
-      {/* CRITICAL: pointer-events-auto */}
       <div 
          className={`relative transition-all duration-500 ease-in-out flex flex-col gap-2 shrink-0 pointer-events-auto ${viewState.showGroups ? 'opacity-100 mr-1' : 'w-0 opacity-0 mr-0 overflow-hidden'}`}
          style={{ width: viewState.showGroups ? groupsPanelWidth : 0 }}
       >
-        <div 
-          className="relative w-full h-full rounded-3xl shadow-xl overflow-hidden border border-white/20 flex flex-col"
-          style={getContainerStyle(notebookTheme)}
-        >
-          {/* Content Wrapper for Z-Index */}
+        <div className="relative w-full h-full rounded-3xl shadow-xl overflow-hidden border border-white/20 flex flex-col" style={getContainerStyle(notebookTheme)}>
           <div className="relative z-10 w-full h-full flex flex-col bg-white/30">
-            {/* Texture */}
             {notebookTheme.texture && notebookTheme.texture !== 'solid' && (
                   <div className={`absolute inset-0 pointer-events-none opacity-20 ${
                     notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : 
@@ -1015,15 +1019,11 @@ const Notebook: React.FC<NotebookProps> = ({
       </div>
 
       {/* --- Main Table Panel --- */}
-      {/* CRITICAL: pointer-events-auto */}
       <div className={`relative transition-all duration-500 ease-in-out flex flex-col overflow-hidden pointer-events-auto ${viewState.showNotebook ? 'flex-1 opacity-100 translate-x-0' : 'w-0 opacity-0 translate-x-10'}`}>
-         {/* Notebook Container - Separation of Background from Content for Opacity */}
          <div className="relative w-full h-full rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-white/20">
              
-             {/* Background Layer with Opacity */}
              <div style={getContainerStyle(notebookTheme)}></div>
 
-             {/* Texture Layer */}
              {notebookTheme.texture && notebookTheme.texture !== 'solid' && (
                   <div className={`absolute inset-0 pointer-events-none opacity-20 z-0 ${
                     notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : 
@@ -1071,6 +1071,14 @@ const Notebook: React.FC<NotebookProps> = ({
                
                <div className="flex gap-2 items-center">
                    <button
+                     onClick={() => setShowExportRecords(true)}
+                     className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"
+                     title="Weekly Report"
+                   >
+                     <FileText size={16} /> <span className="hidden sm:inline">{t.dataMenu.exportRecords}</span>
+                   </button>
+
+                   <button
                      onClick={handleBatchPin}
                      className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"
                      title={t.toolbar.pinAllTitle}
@@ -1093,6 +1101,7 @@ const Notebook: React.FC<NotebookProps> = ({
                      </button>
                      <div className="absolute right-0 top-full pt-2 w-56 hidden group-hover:block">
                         <div className="bg-white rounded-lg shadow-xl border border-stone-100 p-1">
+                           {/* ... Menu Options ... */}
                            <button onClick={handleOpenFolder} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700 font-bold border-b border-stone-100">
                                <Folder size={14} className="text-yellow-500" /> {t.dataMenu.openFolder}
                            </button>
@@ -1124,7 +1133,6 @@ const Notebook: React.FC<NotebookProps> = ({
 
             {/* Table Content */}
             <div className="flex-1 overflow-auto notebook-scroll paper-lines relative z-10">
-               {/* ... Table ... */}
                <div style={{ width: (Object.values(colWidths) as number[]).reduce((a, b) => a + b, 0) + 40, minWidth: '100%' }}>
                   
                   <div className="flex sticky top-0 z-10 shadow-sm h-9 pl-4 border-b border-stone-300/50 bg-white/40 backdrop-blur-md">
@@ -1248,6 +1256,22 @@ const Notebook: React.FC<NotebookProps> = ({
                                     ) : '-'}
                                 </div>
                                 <div style={{ width: colWidths.actions }} className="px-2 flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {note.status === NoteStatus.TODO && (
+                                        <button onClick={() => updateStatus(note.id, NoteStatus.IN_PROGRESS)} className="p-1 rounded hover:bg-blue-100 text-blue-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.startAction}>
+                                            <PlayCircle size={14} /> <span className="hidden xl:inline">{t.table.startAction}</span>
+                                        </button>
+                                    )}
+                                    {note.status === NoteStatus.IN_PROGRESS && (
+                                        <button onClick={() => updateStatus(note.id, NoteStatus.DONE)} className="p-1 rounded hover:bg-green-100 text-green-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.finishAction}>
+                                            <CheckCircle size={14} /> <span className="hidden xl:inline">{t.table.finishAction}</span>
+                                        </button>
+                                    )}
+                                    {note.status === NoteStatus.DONE && (
+                                        <button onClick={() => updateStatus(note.id, NoteStatus.TODO)} className="p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.reopenAction}>
+                                            <RotateCcw size={14} />
+                                        </button>
+                                    )}
+                                    <div className="w-px h-4 bg-stone-200 mx-1"></div>
                                     <button onClick={() => onPinNote(note.id)} className={`p-1 rounded hover:bg-black/10 ${note.isPinned ? 'text-indigo-500' : 'text-stone-400'}`} title={t.note.unpin}><Pin size={14} /></button>
                                     <button onClick={() => requestDeleteNote(note.id)} className="p-1 rounded hover:bg-red-100 text-stone-400 hover:text-red-500" title={t.note.delete}><Trash2 size={14} /></button>
                                 </div>
@@ -1267,8 +1291,7 @@ const Notebook: React.FC<NotebookProps> = ({
                 className="bg-white rounded-2xl shadow-2xl w-[600px] max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" 
                 onClick={e => e.stopPropagation()}
               >
-                  {/* ... Header and Tabs ... */}
-                  {/* Modal Header */}
+                  {/* ... Header ... */}
                   <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50">
                       <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2">
                           <Settings2 className="text-blue-600" />
@@ -1279,17 +1302,15 @@ const Notebook: React.FC<NotebookProps> = ({
                       </button>
                   </div>
 
-                  {/* Tabs */}
-                  <div className="flex border-b border-stone-100">
-                      <button onClick={() => setSettingsTab('general')} className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'general' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.general}</button>
-                      <button onClick={() => setSettingsTab('bookshelf')} className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'bookshelf' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.bookshelf}</button>
-                      <button onClick={() => setSettingsTab('notebook')} className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'notebook' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.notebook}</button>
-                      <button onClick={() => setSettingsTab('presets')} className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'presets' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.presets}</button>
+                  <div className="flex border-b border-stone-100 overflow-x-auto no-scrollbar">
+                      <button onClick={() => setSettingsTab('general')} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'general' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.general}</button>
+                      <button onClick={() => setSettingsTab('bookshelf')} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'bookshelf' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.bookshelf}</button>
+                      <button onClick={() => setSettingsTab('notebook')} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'notebook' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.notebook}</button>
+                      <button onClick={() => setSettingsTab('presets')} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'presets' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.presets}</button>
                   </div>
 
                   {/* Content */}
                   <div className="p-6 overflow-y-auto min-h-[300px]">
-                      
                       {/* General Tab */}
                       {settingsTab === 'general' && (
                           <div className="space-y-6">
@@ -1302,12 +1323,12 @@ const Notebook: React.FC<NotebookProps> = ({
                               </div>
                               <div className="p-4 bg-stone-50 rounded-xl text-stone-500 text-sm leading-relaxed border border-stone-100">
                                   <p>{t.settingsModal.generatedBy}</p>
-                                  <p className="mt-2 text-xs opacity-50">Version 4.4.0</p>
+                                  <p className="mt-2 text-xs opacity-50">Version 4.5.1</p>
                               </div>
                           </div>
                       )}
 
-                      {/* Bookshelf Tab */}
+                      {/* Bookshelf Tab - Restored */}
                       {settingsTab === 'bookshelf' && (
                           <div className="space-y-6">
                               <div>
@@ -1398,9 +1419,10 @@ const Notebook: React.FC<NotebookProps> = ({
                           </div>
                       )}
 
-                      {/* Notebook Tab */}
+                      {/* Notebook Tab - With Restored Settings + New AI Section */}
                       {settingsTab === 'notebook' && (
                           <div className="space-y-6">
+                              {/* --- Appearance --- */}
                               <div>
                                   <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.bgType}</label>
                                   <div className="flex gap-2 items-center">
@@ -1448,13 +1470,84 @@ const Notebook: React.FC<NotebookProps> = ({
                                   />
                               </div>
 
+                              <div className="border-t border-stone-100 my-4"></div>
+
+                              {/* --- AI Section (Moved Here) --- */}
+                              <div className="space-y-4">
+                                  <div className="flex items-center gap-2 mb-2">
+                                      <Cpu size={16} className="text-blue-500"/>
+                                      <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wider">{t.settingsModal.ai}</h3>
+                                  </div>
+                                  
+                                  <div>
+                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.llmProvider}</label>
+                                      <div className="grid grid-cols-4 gap-2">
+                                          {['gemini', 'openai', 'deepseek', 'custom'].map(p => (
+                                              <button 
+                                                key={p}
+                                                onClick={() => onUpdateLlmConfig({ ...llmConfig, provider: p as LLMProvider })}
+                                                className={`p-2 rounded-lg border text-xs font-bold capitalize truncate ${llmConfig.provider === p ? 'bg-blue-50 border-blue-500 text-blue-700' : 'hover:bg-stone-50 text-stone-600'}`}
+                                              >
+                                                  {p}
+                                              </button>
+                                          ))}
+                                      </div>
+                                  </div>
+
+                                  {/* Custom Base URL Field */}
+                                  {llmConfig.provider === 'custom' && (
+                                      <div className="animate-in fade-in slide-in-from-top-2">
+                                          <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">Base URL</label>
+                                          <input 
+                                              type="text" 
+                                              className="w-full p-2 border rounded-lg text-sm bg-stone-50 font-mono"
+                                              placeholder="https://api.example.com/v1"
+                                              value={llmConfig.baseUrl || ''}
+                                              onChange={e => onUpdateLlmConfig({ ...llmConfig, baseUrl: e.target.value })}
+                                          />
+                                      </div>
+                                  )}
+
+                                  <div>
+                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.apiKey}</label>
+                                      <input 
+                                          type="password" 
+                                          className="w-full p-2 border rounded-lg text-sm bg-stone-50 font-mono"
+                                          placeholder="sk-..."
+                                          value={llmConfig.apiKey}
+                                          onChange={e => onUpdateLlmConfig({ ...llmConfig, apiKey: e.target.value })}
+                                      />
+                                      <div className="text-[10px] text-stone-400 mt-1">
+                                          {llmConfig.provider === 'gemini' ? 'Optional (uses env var if empty)' : 'Required'}
+                                      </div>
+                                  </div>
+
+                                  <div>
+                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.modelName}</label>
+                                      <input 
+                                          type="text" 
+                                          className="w-full p-2 border rounded-lg text-sm bg-stone-50 font-mono"
+                                          value={llmConfig.model}
+                                          onChange={e => onUpdateLlmConfig({ ...llmConfig, model: e.target.value })}
+                                      />
+                                  </div>
+
+                                  <div>
+                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.customPrompt}</label>
+                                      <textarea 
+                                          className="w-full h-24 p-2 border rounded-lg text-xs bg-stone-50 font-mono resize-none leading-relaxed"
+                                          value={llmConfig.customPrompt}
+                                          onChange={e => onUpdateLlmConfig({ ...llmConfig, customPrompt: e.target.value })}
+                                      />
+                                  </div>
+                              </div>
+
                               <div className="pt-4 border-t">
                                   <button onClick={requestResetNotebook} className="text-red-500 text-sm font-bold hover:underline flex items-center gap-1"><RefreshCw size={14} /> {t.themeMenu.reset}</button>
                               </div>
                           </div>
                       )}
 
-                      {/* Presets Tab */}
                       {settingsTab === 'presets' && (
                           <div className="flex gap-6 h-[400px]">
                               {/* Left: Editor */}
@@ -1534,8 +1627,58 @@ const Notebook: React.FC<NotebookProps> = ({
           </div>
       )}
 
+      {/* --- Export Records Modal --- */}
+      {showExportRecords && (
+          <div className="fixed inset-0 z-[1100] bg-black/40 backdrop-blur-[2px] flex items-center justify-center pointer-events-auto" onClick={() => setShowExportRecords(false)}>
+              <div 
+                className="bg-white rounded-2xl shadow-2xl w-[600px] h-[500px] flex flex-col overflow-hidden animate-in zoom-in-95" 
+                onClick={e => e.stopPropagation()}
+              >
+                  <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50">
+                      <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2">
+                          <FileText className="text-blue-600" />
+                          {t.dataMenu.exportRecords}
+                      </h2>
+                      <button onClick={() => setShowExportRecords(false)} className="p-1 rounded-full hover:bg-stone-200 text-stone-400 hover:text-stone-600 transition-colors">
+                          <X size={20} />
+                      </button>
+                  </div>
+                  
+                  <div className="p-6 flex flex-col h-full gap-4">
+                      {/* Controls */}
+                      <div className="flex items-end gap-4 p-4 bg-stone-50 rounded-xl border border-stone-100">
+                          <div>
+                              <label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Work Start</label>
+                              <input type="time" value={workDayStart} onChange={e => setWorkDayStart(e.target.value)} className="p-2 rounded border border-stone-200 text-sm" />
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Work End</label>
+                              <input type="time" value={workDayEnd} onChange={e => setWorkDayEnd(e.target.value)} className="p-2 rounded border border-stone-200 text-sm" />
+                          </div>
+                          <button 
+                            onClick={generateWeeklyReport}
+                            className="ml-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow font-bold text-sm hover:bg-blue-700 transition-colors"
+                          >
+                              Generate Report
+                          </button>
+                      </div>
+
+                      {/* Output */}
+                      <div className="flex-1 flex flex-col">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Export Result (Current Week)</label>
+                          <textarea 
+                              readOnly 
+                              className="w-full h-full p-4 border border-stone-200 rounded-xl bg-stone-50 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-100 text-stone-700"
+                              value={exportResult}
+                              placeholder="Click 'Generate Report' to calculate working hours for this week..."
+                          />
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* --- Confirmation Modal --- */}
-      {/* ... Confirmation Modal ... */}
       {modalConfig.isOpen && (
         <div className="fixed inset-0 z-[1100] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4 pointer-events-auto" onClick={() => setModalConfig({ ...modalConfig, isOpen: false })}>
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>

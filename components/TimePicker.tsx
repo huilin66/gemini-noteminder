@@ -1,7 +1,5 @@
-
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Clock } from 'lucide-react';
+import { Clock, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface TimePickerProps {
   value: string; // ISO string
@@ -9,170 +7,200 @@ interface TimePickerProps {
   className?: string;
 }
 
-const TumblerColumn = ({ 
-  options, 
-  value, 
-  onChange, 
-  label 
-}: { 
-  options: number[], 
-  value: number, 
-  onChange: (v: number) => void,
-  label?: string 
-}) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
+const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) => {
+  const [isDateOpen, setIsDateOpen] = useState(false);
+  const [isTimeOpen, setIsTimeOpen] = useState(false);
+  
+  const dateContainerRef = useRef<HTMLDivElement>(null);
+  const timeContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to selected value on open
+  // Initialize state from props
+  const dateObj = value ? new Date(value) : new Date();
+  const safeDate = isNaN(dateObj.getTime()) ? new Date() : dateObj;
+
+  const [viewDate, setViewDate] = useState(new Date(safeDate)); // For calendar navigation
+  
+  const [selectedHour, setSelectedHour] = useState(safeDate.getHours());
+  const [selectedMinute, setSelectedMinute] = useState(safeDate.getMinutes());
+
+  // Sync state when reopening or value changes externally
   useEffect(() => {
-    if (scrollRef.current) {
-      const selectedEl = scrollRef.current.querySelector(`[data-value="${value}"]`);
-      if (selectedEl) {
-        selectedEl.scrollIntoView({ block: 'center' });
+    if (value) {
+      const d = new Date(value);
+      if (!isNaN(d.getTime())) {
+        setViewDate(d);
+        setSelectedHour(d.getHours());
+        setSelectedMinute(d.getMinutes());
       }
     }
   }, [value]);
 
-  return (
-    <div className="flex flex-col items-center gap-1 min-w-[40px]">
-      {label && <div className="text-[9px] font-bold text-stone-400 uppercase tracking-wider">{label}</div>}
-      <div 
-        ref={scrollRef}
-        className="w-full h-32 overflow-y-auto no-scrollbar snap-y snap-mandatory relative group"
-      >
-        <div className="h-12"></div> {/* Spacer top */}
-        {options.map(opt => (
-          <div 
-            key={opt}
-            data-value={opt}
-            onClick={() => {
-                onChange(opt);
-                scrollRef.current?.querySelector(`[data-value="${opt}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }}
-            className={`h-8 flex items-center justify-center snap-center cursor-pointer transition-all text-sm font-mono ${opt === value ? 'text-stone-800 font-bold scale-110' : 'text-stone-300 hover:text-stone-500'}`}
-          >
-            {opt.toString().padStart(2, '0')}
-          </div>
-        ))}
-        <div className="h-12"></div> {/* Spacer bottom */}
-        
-        {/* Minimal Selection Indicator */}
-        <div className="absolute top-12 left-0 right-0 h-8 pointer-events-none border-y border-stone-100 bg-stone-50/50"></div>
-      </div>
-    </div>
-  );
-};
-
-const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const dateObj = value ? new Date(value) : new Date();
-  
-  const [year, setYear] = useState(dateObj.getFullYear());
-  const [month, setMonth] = useState(dateObj.getMonth() + 1);
-  const [day, setDay] = useState(dateObj.getDate());
-  const [hour, setHour] = useState(dateObj.getHours());
-  const [minute, setMinute] = useState(dateObj.getMinutes());
-  const [second, setSecond] = useState(dateObj.getSeconds());
-
-  // Sync state with props when opening or when value changes
-  useEffect(() => {
-      if (isOpen && value) {
-          const d = new Date(value);
-          if (!isNaN(d.getTime())) {
-            setYear(d.getFullYear());
-            setMonth(d.getMonth() + 1);
-            setDay(d.getDate());
-            setHour(d.getHours());
-            setMinute(d.getMinutes());
-            setSecond(d.getSeconds());
-          }
-      } else if (isOpen && !value) {
-          const d = new Date();
-          setYear(d.getFullYear());
-          setMonth(d.getMonth() + 1);
-          setDay(d.getDate());
-          setHour(d.getHours());
-          setMinute(d.getMinutes());
-          setSecond(d.getSeconds());
-      }
-  }, [isOpen, value]);
-
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+      if (dateContainerRef.current && !dateContainerRef.current.contains(event.target as Node)) {
+        setIsDateOpen(false);
+      }
+      if (timeContainerRef.current && !timeContainerRef.current.contains(event.target as Node)) {
+        setIsTimeOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleUpdate = (y: number, m: number, d: number, h: number, min: number, s: number) => {
-      setYear(y); setMonth(m); setDay(d); setHour(h); setMinute(min); setSecond(s);
-      
-      const newDate = new Date();
-      newDate.setFullYear(y);
-      newDate.setMonth(m - 1);
-      newDate.setDate(d);
-      newDate.setHours(h);
-      newDate.setMinutes(min);
-      newDate.setSeconds(s);
-      newDate.setMilliseconds(0);
-
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      const iso = `${newDate.getFullYear()}-${pad(m)}-${pad(d)}T${pad(h)}:${pad(min)}:${pad(s)}`;
-      onChange(iso);
+  const commit = (d: Date, h: number, m: number) => {
+    const newDate = new Date(d);
+    newDate.setHours(h);
+    newDate.setMinutes(m);
+    newDate.setSeconds(0);
+    newDate.setMilliseconds(0);
+    
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const localIso = `${newDate.getFullYear()}-${pad(newDate.getMonth() + 1)}-${pad(newDate.getDate())}T${pad(newDate.getHours())}:${pad(newDate.getMinutes())}:00`;
+    onChange(localIso);
   };
 
-  const formatDisplay = () => {
-      if (!value) return "Select Time";
-      const d = new Date(value);
-      if (isNaN(d.getTime())) return "Invalid Time";
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      return `${d.getFullYear().toString().slice(-2)}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const handleDayClick = (d: number) => {
+    const newDate = new Date(viewDate);
+    newDate.setDate(d);
+    setViewDate(newDate);
+    commit(newDate, selectedHour, selectedMinute);
+    setIsDateOpen(false);
   };
 
-  // Ranges
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({length: 11}, (_, i) => currentYear - 5 + i); // 5 years back, 5 forward
-  const months = Array.from({length: 12}, (_, i) => i + 1);
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const days = Array.from({length: daysInMonth}, (_, i) => i + 1);
-  const hours = Array.from({length: 24}, (_, i) => i);
-  const minutes = Array.from({length: 60}, (_, i) => i);
-  const seconds = Array.from({length: 60}, (_, i) => i);
+  const handleTimeSelect = (h: number, m: number) => {
+    setSelectedHour(h);
+    setSelectedMinute(m);
+    commit(viewDate, h, m);
+  };
+
+  const changeMonth = (delta: number) => {
+    const newDate = new Date(viewDate);
+    newDate.setMonth(newDate.getMonth() + delta);
+    setViewDate(newDate);
+  };
+
+  const formatDisplayDate = () => {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${safeDate.getFullYear()}/${pad(safeDate.getMonth() + 1)}/${pad(safeDate.getDate())}`;
+  };
+
+  const formatDisplayTime = () => {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(safeDate.getHours())}:${pad(safeDate.getMinutes())}`;
+  };
+
+  // Calendar Generation
+  const daysInMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0).getDate();
+  const firstDayOfMonth = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay(); // 0 = Sun
+  
+  const days = [];
+  for (let i = 0; i < firstDayOfMonth; i++) {
+    days.push(null);
+  }
+  for (let i = 1; i <= daysInMonth; i++) {
+    days.push(i);
+  }
+
+  const weekDays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+
+  const isSelectedDate = (d: number) => {
+    return safeDate.getDate() === d && 
+           safeDate.getMonth() === viewDate.getMonth() && 
+           safeDate.getFullYear() === viewDate.getFullYear();
+  };
 
   return (
-    <div className={`relative ${className}`} ref={containerRef}>
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full text-xs p-1.5 border rounded-md border-transparent hover:border-stone-200 hover:bg-stone-50 transition-colors text-left flex items-center justify-between text-stone-600 font-mono tracking-tight"
+    <div className={`flex gap-1 items-center ${className}`}>
+      {/* Date Picker */}
+      <div 
+        className="relative flex-1" 
+        ref={dateContainerRef}
       >
-        <span>{formatDisplay()}</span>
-        <Clock size={12} className="text-stone-300" />
-      </button>
+        <button 
+          onClick={(e) => { e.stopPropagation(); setIsDateOpen(!isDateOpen); setIsTimeOpen(false); }}
+          className="w-full text-xs p-1.5 border rounded-md border-stone-200 hover:bg-stone-50 bg-white transition-colors text-left flex items-center justify-between text-stone-700 font-mono tracking-tight"
+        >
+          <span className="truncate">{formatDisplayDate()}</span>
+          <CalendarIcon size={12} className="text-stone-400 shrink-0 ml-1" />
+        </button>
 
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-2 bg-white rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] border border-stone-100 z-[100] p-4 flex gap-4 animate-in fade-in zoom-in-95 duration-200">
-             
-             {/* Date Section */}
-             <div className="flex gap-1">
-                <TumblerColumn label="Yr" options={years} value={year} onChange={(v) => handleUpdate(v, month, day, hour, minute, second)} />
-                <TumblerColumn label="Mo" options={months} value={month} onChange={(v) => handleUpdate(year, v, day, hour, minute, second)} />
-                <TumblerColumn label="Dy" options={days} value={day} onChange={(v) => handleUpdate(year, month, v, hour, minute, second)} />
-             </div>
+        {isDateOpen && (
+          <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-stone-200 z-[100] p-3 w-56 animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+               <div className="flex justify-between items-center text-stone-700 font-bold px-1">
+                  <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-600"><ChevronLeft size={14}/></button>
+                  <div className="text-xs">
+                    {viewDate.toLocaleString('default', { month: 'short', year: 'numeric' })}
+                  </div>
+                  <button onClick={() => changeMonth(1)} className="p-1 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-600"><ChevronRight size={14}/></button>
+               </div>
+               <div className="grid grid-cols-7 gap-1 text-center">
+                  {weekDays.map(d => (
+                    <div key={d} className="text-[9px] text-stone-400 font-bold uppercase">{d}</div>
+                  ))}
+                  {days.map((d, i) => (
+                    <div key={i} className="aspect-square flex items-center justify-center">
+                      {d ? (
+                        <button 
+                          onClick={() => handleDayClick(d)}
+                          className={`w-6 h-6 flex items-center justify-center text-[10px] rounded-full transition-colors ${isSelectedDate(d) ? 'bg-blue-600 text-white font-bold' : 'text-stone-700 hover:bg-stone-100'}`}
+                        >
+                          {d}
+                        </button>
+                      ) : (
+                        <span></span>
+                      )}
+                    </div>
+                  ))}
+               </div>
+          </div>
+        )}
+      </div>
 
-             <div className="w-px bg-stone-100 self-center h-28"></div>
+      {/* Time Picker */}
+      <div 
+        className="relative w-20" 
+        ref={timeContainerRef}
+      >
+        <button 
+          onClick={(e) => { e.stopPropagation(); setIsTimeOpen(!isTimeOpen); setIsDateOpen(false); }}
+          className="w-full text-xs p-1.5 border rounded-md border-stone-200 hover:bg-stone-50 bg-white transition-colors text-left flex items-center justify-between text-stone-700 font-mono tracking-tight"
+        >
+          <span className="truncate">{formatDisplayTime()}</span>
+          <Clock size={12} className="text-stone-400 shrink-0 ml-1" />
+        </button>
 
-             {/* Time Section */}
-             <div className="flex gap-1">
-                <TumblerColumn label="Hr" options={hours} value={hour} onChange={(v) => handleUpdate(year, month, day, v, minute, second)} />
-                <TumblerColumn label="Mn" options={minutes} value={minute} onChange={(v) => handleUpdate(year, month, day, hour, v, second)} />
-                <TumblerColumn label="Sc" options={seconds} value={second} onChange={(v) => handleUpdate(year, month, day, hour, minute, v)} />
-             </div>
-        </div>
-      )}
+        {isTimeOpen && (
+          <div className="absolute top-full right-0 mt-1 bg-white rounded-xl shadow-xl border border-stone-200 z-[100] w-32 h-40 flex overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+               <div className="flex-1 overflow-y-auto no-scrollbar border-r border-stone-100">
+                   {Array.from({ length: 24 }).map((_, i) => (
+                       <button 
+                         key={i} 
+                         onClick={() => handleTimeSelect(i, selectedMinute)}
+                         className={`w-full py-1 text-center text-xs hover:bg-stone-100 ${selectedHour === i ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}
+                       >
+                           {i.toString().padStart(2, '0')}
+                       </button>
+                   ))}
+               </div>
+               <div className="flex-1 overflow-y-auto no-scrollbar">
+                   {Array.from({ length: 12 }).map((_, i) => { // 5-minute intervals for easier picking + single minute adjustments if typed manually? 
+                       // Let's stick to simple list 0-59 for full precision as requested "previous design"
+                       return null;
+                   })}
+                   {Array.from({ length: 60 }).map((_, i) => (
+                       <button 
+                         key={i} 
+                         onClick={() => handleTimeSelect(selectedHour, i)}
+                         className={`w-full py-1 text-center text-xs hover:bg-stone-100 ${selectedMinute === i ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}
+                       >
+                           {i.toString().padStart(2, '0')}
+                       </button>
+                   ))}
+               </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
