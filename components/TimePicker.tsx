@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Clock, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -111,10 +112,10 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
   };
 
   return (
-    <div className={`flex gap-1 items-center ${className}`}>
+    <div className={`flex flex-wrap gap-1 items-center ${className}`}>
       {/* Date Picker */}
       <div 
-        className="relative flex-1" 
+        className="relative flex-1 min-w-[90px]" 
         ref={dateContainerRef}
       >
         <button 
@@ -159,7 +160,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
 
       {/* Time Picker */}
       <div 
-        className="relative w-20" 
+        className="relative w-20 min-w-[70px]" 
         ref={timeContainerRef}
       >
         <button 

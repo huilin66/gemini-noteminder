@@ -1,6 +1,7 @@
+
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../types';
-import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu } from 'lucide-react';
+import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart } from 'lucide-react';
 import { parseNoteWithAI } from '../services/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 import { translations } from '../utils/i18n';
@@ -74,6 +75,16 @@ interface SortConfig {
   direction: 'asc' | 'desc';
 }
 
+interface FilterConfig {
+  status: NoteStatus[];
+  importance: NoteImportance[];
+  dateField: 'createdAt' | 'startTime' | 'endTime';
+  dateRange: {
+    start: string; // ISO Date String
+    end: string;   // ISO Date String
+  };
+}
+
 interface ModalConfig {
   isOpen: boolean;
   title: string;
@@ -137,6 +148,15 @@ const Notebook: React.FC<NotebookProps> = ({
   const [helpTab, setHelpTab] = useState<'general' | 'bookshelf' | 'notebooks' | 'notebook' | 'note' | 'settings' | 'update'>('general');
   
   const [newPresetName, setNewPresetName] = useState('');
+
+  // --- Filter State ---
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterConfig, setFilterConfig] = useState<FilterConfig>({
+      status: [],
+      importance: [],
+      dateField: 'startTime',
+      dateRange: { start: '', end: '' }
+  });
   
   // Weekly Export State
   const [showExportRecords, setShowExportRecords] = useState(false);
@@ -236,6 +256,30 @@ const Notebook: React.FC<NotebookProps> = ({
         });
     }
 
+    // Apply Filters
+    if (showFilters) {
+        if (filterConfig.status.length > 0) {
+            filtered = filtered.filter(n => filterConfig.status.includes(n.status));
+        }
+        if (filterConfig.importance.length > 0) {
+            filtered = filtered.filter(n => filterConfig.importance.includes(n.importance));
+        }
+        if (filterConfig.dateRange.start) {
+            const startTs = new Date(filterConfig.dateRange.start).getTime();
+            filtered = filtered.filter(n => {
+                const val = n[filterConfig.dateField];
+                return val ? val >= startTs : false;
+            });
+        }
+        if (filterConfig.dateRange.end) {
+            const endTs = new Date(filterConfig.dateRange.end).getTime() + 86400000; // End of day roughly
+            filtered = filtered.filter(n => {
+                const val = n[filterConfig.dateField];
+                return val ? val < endTs : false;
+            });
+        }
+    }
+
     if (!sortConfig) return filtered;
     
     return filtered.sort((a, b) => {
@@ -257,7 +301,7 @@ const Notebook: React.FC<NotebookProps> = ({
       if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [currentGroupNotes, sortConfig, showTodayOnly]);
+  }, [currentGroupNotes, sortConfig, showTodayOnly, showFilters, filterConfig]);
 
   const startEditing = (note: Note) => {
     setEditingId(note.id);
@@ -383,6 +427,15 @@ const Notebook: React.FC<NotebookProps> = ({
   const handleBatchPin = () => {
       const idsToPin = sortedNotes.filter(n => !n.isPinned).map(n => n.id);
       onBatchPinNotes(idsToPin);
+  };
+
+  const handleUnpinAll = () => {
+      const idsToUnpin = sortedNotes.filter(n => n.isPinned).map(n => n.id);
+      if (idsToUnpin.length === 0) return;
+      
+      idsToUnpin.forEach(id => {
+          onPinNote(id); 
+      });
   };
 
   const handleAIParse = async () => {
@@ -826,16 +879,16 @@ const Notebook: React.FC<NotebookProps> = ({
   };
 
   const handleDragStart = (e: React.DragEvent, position: number) => {
-    if (editingId || sortConfig || showTodayOnly) { e.preventDefault(); return; }
+    if (editingId || sortConfig || showTodayOnly || showFilters) { e.preventDefault(); return; }
     dragItem.current = position;
     e.dataTransfer.effectAllowed = "move";
   };
   const handleDragEnter = (e: React.DragEvent, position: number) => {
-    if (editingId || sortConfig || showTodayOnly) return;
+    if (editingId || sortConfig || showTodayOnly || showFilters) return;
     dragOverItem.current = position;
   };
   const handleDragEnd = () => {
-    if (dragItem.current !== null && dragOverItem.current !== null && !sortConfig && !showTodayOnly) {
+    if (dragItem.current !== null && dragOverItem.current !== null && !sortConfig && !showTodayOnly && !showFilters) {
        onReorderNotes(dragItem.current, dragOverItem.current);
     }
     dragItem.current = null;
@@ -913,6 +966,24 @@ const Notebook: React.FC<NotebookProps> = ({
           </div>
       )
   }
+
+  const toggleStatusFilter = (status: NoteStatus) => {
+      setFilterConfig(prev => {
+          const newStatus = prev.status.includes(status) 
+              ? prev.status.filter(s => s !== status)
+              : [...prev.status, status];
+          return { ...prev, status: newStatus };
+      });
+  };
+
+  const toggleImportanceFilter = (imp: NoteImportance) => {
+      setFilterConfig(prev => {
+          const newImp = prev.importance.includes(imp) 
+              ? prev.importance.filter(i => i !== imp)
+              : [...prev.importance, imp];
+          return { ...prev, importance: newImp };
+      });
+  };
 
   return (
     <div className="flex w-full h-full max-w-[1800px] mx-auto transition-all relative justify-center pointer-events-none">
@@ -1030,96 +1101,167 @@ const Notebook: React.FC<NotebookProps> = ({
             </div>
 
             {/* Toolbar */}
-            <div className="relative z-[60] bg-white/30 backdrop-blur-md p-3 border-b border-stone-200/50 flex justify-between items-center shadow-sm shrink-0">
-               <div className="pl-2">
-                  <div className="flex items-center gap-2">
-                      <PenLine className="text-stone-600" />
-                      {isEditingTitle ? (
-                          <input 
-                            autoFocus
-                            className="text-xl font-bold text-stone-800 bg-white/50 px-1 rounded border border-stone-300 outline-none"
-                            value={tempTitle}
-                            onChange={(e) => setTempTitle(e.target.value)}
-                            onBlur={handleTitleSave}
-                            onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()}
-                          />
-                      ) : (
-                          <h1 
-                            className="text-xl font-bold text-stone-800 cursor-text hover:bg-black/5 rounded px-1 transition-colors"
-                            onDoubleClick={handleTitleDoubleClick}
-                            title={t.toolbar.doubleClick}
-                          >
-                            {activeGroup?.name || "Notebook"}
-                          </h1>
-                      )}
-                  </div>
-                  <p className="text-[10px] text-stone-500 ml-8">
-                     {showTodayOnly 
-                       ? <span className="text-blue-600 font-bold flex items-center gap-1"><Calendar size={10}/> {t.sidebar.today}</span> 
-                       : sortConfig ? t.toolbar.sortingActive : t.toolbar.dragToReorder}
-                  </p>
+            <div className="relative z-[60] bg-white/30 backdrop-blur-md border-b border-stone-200/50 flex flex-col shrink-0">
+               <div className="p-3 flex justify-between items-center shadow-sm">
+                   <div className="pl-2">
+                      <div className="flex items-center gap-2">
+                          <PenLine className="text-stone-600" />
+                          {isEditingTitle ? (
+                              <input 
+                                autoFocus
+                                className="text-xl font-bold text-stone-800 bg-white/50 px-1 rounded border border-stone-300 outline-none"
+                                value={tempTitle}
+                                onChange={(e) => setTempTitle(e.target.value)}
+                                onBlur={handleTitleSave}
+                                onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()}
+                              />
+                          ) : (
+                              <h1 
+                                className="text-xl font-bold text-stone-800 cursor-text hover:bg-black/5 rounded px-1 transition-colors"
+                                onDoubleClick={handleTitleDoubleClick}
+                                title={t.toolbar.doubleClick}
+                              >
+                                {activeGroup?.name || "Notebook"}
+                              </h1>
+                          )}
+                      </div>
+                      <p className="text-[10px] text-stone-500 ml-8">
+                         {showTodayOnly 
+                           ? <span className="text-blue-600 font-bold flex items-center gap-1"><Calendar size={10}/> {t.sidebar.today}</span> 
+                           : sortConfig ? t.toolbar.sortingActive : t.toolbar.dragToReorder}
+                      </p>
+                   </div>
+                   
+                   <div className="flex gap-2 items-center">
+                       <button
+                         onClick={() => setShowFilters(!showFilters)}
+                         className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow active:scale-95 transform ${showFilters ? 'bg-blue-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-50'}`}
+                         title={t.toolbar.filter}
+                       >
+                         <Filter size={16} /> <span className="hidden sm:inline">{t.toolbar.filter}</span>
+                       </button>
+
+                       <button
+                         onClick={() => setShowExportRecords(true)}
+                         className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"
+                         title="Weekly Report"
+                       >
+                         <FileText size={16} /> <span className="hidden sm:inline">{t.dataMenu.exportRecords}</span>
+                       </button>
+
+                       <button
+                         onClick={handleBatchPin}
+                         className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"
+                         title={t.toolbar.pinAllTitle}
+                      >
+                         <Layers size={16} /> <span className="hidden sm:inline">{t.toolbar.pinAll}</span>
+                      </button>
+
+                      <button
+                         onClick={handleUnpinAll}
+                         className="flex items-center gap-1 px-3 py-1.5 bg-stone-200 text-stone-700 rounded-lg hover:bg-stone-300 transition-colors text-sm font-medium shadow active:scale-95 transform"
+                         title={t.toolbar.unpinAllTitle}
+                      >
+                         <PinOff size={16} /> <span className="hidden sm:inline">{t.toolbar.unpinAll}</span>
+                      </button>
+
+                      <button
+                         onClick={createEmptyEvent}
+                         className="flex items-center gap-1 px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700 transition-colors text-sm font-medium shadow-lg hover:shadow-xl active:scale-95 transform"
+                      >
+                         <Plus size={16} /> <span className="hidden sm:inline">{t.toolbar.newEvent}</span>
+                      </button>
+
+                      <div className="h-6 w-px bg-stone-300 mx-2"></div>
+
+                      <div className="relative group">
+                         <button className="p-2 text-stone-600 hover:bg-stone-200 rounded-lg transition-colors flex items-center gap-1" title={t.toolbar.dataOptions}>
+                            <FolderOpen size={18} />
+                         </button>
+                         <div className="absolute right-0 top-full pt-2 w-56 hidden group-hover:block">
+                            <div className="bg-white rounded-lg shadow-xl border border-stone-100 p-1">
+                               {/* ... Menu Options ... */}
+                               <button onClick={handleOpenFolder} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700 font-bold border-b border-stone-100">
+                                   <Folder size={14} className="text-yellow-500" /> {t.dataMenu.openFolder}
+                               </button>
+                               
+                               {/* CSV Options */}
+                               <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider">CSV</div>
+                               <button onClick={exportCSV} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700">
+                                  <FileDown size={14} className="text-blue-500" /> {t.dataMenu.exportCSV}
+                               </button>
+                               <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700">
+                                  <FileUp size={14} className="text-green-500" /> {t.dataMenu.importCSV}
+                                  <input type="file" accept=".csv" className="hidden" ref={csvInputRef} onChange={importCSV} />
+                               </label>
+
+                               {/* XLSX Options */}
+                               <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider border-t border-stone-100 mt-1">XLSX (Excel)</div>
+                               <button onClick={onExportXLSX} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700">
+                                  <Sheet size={14} className="text-green-600" /> {t.dataMenu.exportXLSX}
+                               </button>
+                               <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700">
+                                  <FileUp size={14} className="text-green-600" /> {t.dataMenu.importXLSX}
+                                  <input type="file" accept=".xlsx,.xls" className="hidden" ref={xlsxInputRef} onChange={importXLSX} />
+                               </label>
+                            </div>
+                         </div>
+                      </div>
+                   </div>
                </div>
-               
-               <div className="flex gap-2 items-center">
-                   <button
-                     onClick={() => setShowExportRecords(true)}
-                     className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"
-                     title="Weekly Report"
-                   >
-                     <FileText size={16} /> <span className="hidden sm:inline">{t.dataMenu.exportRecords}</span>
-                   </button>
 
-                   <button
-                     onClick={handleBatchPin}
-                     className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"
-                     title={t.toolbar.pinAllTitle}
-                  >
-                     <Layers size={16} /> <span className="hidden sm:inline">{t.toolbar.pinAll}</span>
-                  </button>
-
-                  <button
-                     onClick={createEmptyEvent}
-                     className="flex items-center gap-1 px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700 transition-colors text-sm font-medium shadow-lg hover:shadow-xl active:scale-95 transform"
-                  >
-                     <Plus size={16} /> <span className="hidden sm:inline">{t.toolbar.newEvent}</span>
-                  </button>
-
-                  <div className="h-6 w-px bg-stone-300 mx-2"></div>
-
-                  <div className="relative group">
-                     <button className="p-2 text-stone-600 hover:bg-stone-200 rounded-lg transition-colors flex items-center gap-1" title={t.toolbar.dataOptions}>
-                        <FolderOpen size={18} />
-                     </button>
-                     <div className="absolute right-0 top-full pt-2 w-56 hidden group-hover:block">
-                        <div className="bg-white rounded-lg shadow-xl border border-stone-100 p-1">
-                           {/* ... Menu Options ... */}
-                           <button onClick={handleOpenFolder} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700 font-bold border-b border-stone-100">
-                               <Folder size={14} className="text-yellow-500" /> {t.dataMenu.openFolder}
-                           </button>
-                           
-                           {/* CSV Options */}
-                           <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider">CSV</div>
-                           <button onClick={exportCSV} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700">
-                              <FileDown size={14} className="text-blue-500" /> {t.dataMenu.exportCSV}
-                           </button>
-                           <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700">
-                              <FileUp size={14} className="text-green-500" /> {t.dataMenu.importCSV}
-                              <input type="file" accept=".csv" className="hidden" ref={csvInputRef} onChange={importCSV} />
-                           </label>
-
-                           {/* XLSX Options */}
-                           <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider border-t border-stone-100 mt-1">XLSX (Excel)</div>
-                           <button onClick={onExportXLSX} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700">
-                              <Sheet size={14} className="text-green-600" /> {t.dataMenu.exportXLSX}
-                           </button>
-                           <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700">
-                              <FileUp size={14} className="text-green-600" /> {t.dataMenu.importXLSX}
-                              <input type="file" accept=".xlsx,.xls" className="hidden" ref={xlsxInputRef} onChange={importXLSX} />
-                           </label>
-                        </div>
-                     </div>
-                  </div>
-               </div>
+               {/* Filter Bar */}
+               {showFilters && (
+                   <div className="p-2 px-4 bg-stone-100 border-t border-stone-200 flex items-center flex-wrap gap-4 animate-in slide-in-from-top-2">
+                       <div className="flex items-center gap-2">
+                           <span className="text-[10px] font-bold text-stone-400 uppercase">{t.filter.dateField}</span>
+                           <select 
+                               value={filterConfig.dateField} 
+                               onChange={e => setFilterConfig({...filterConfig, dateField: e.target.value as any})}
+                               className="text-xs p-1 rounded border border-stone-300"
+                           >
+                               <option value="createdAt">{t.table.added}</option>
+                               <option value="startTime">{t.table.start}</option>
+                               <option value="endTime">{t.table.end}</option>
+                           </select>
+                       </div>
+                       <div className="flex items-center gap-2">
+                           <span className="text-[10px] font-bold text-stone-400 uppercase">{t.filter.from}</span>
+                           <input type="date" value={filterConfig.dateRange.start} onChange={e => setFilterConfig({...filterConfig, dateRange: {...filterConfig.dateRange, start: e.target.value}})} className="text-xs p-1 rounded border border-stone-300" />
+                           <span className="text-[10px] font-bold text-stone-400 uppercase">{t.filter.to}</span>
+                           <input type="date" value={filterConfig.dateRange.end} onChange={e => setFilterConfig({...filterConfig, dateRange: {...filterConfig.dateRange, end: e.target.value}})} className="text-xs p-1 rounded border border-stone-300" />
+                       </div>
+                       <div className="flex items-center gap-2">
+                           <span className="text-[10px] font-bold text-stone-400 uppercase">{t.table.status}</span>
+                           <div className="flex gap-1">
+                               {Object.values(NoteStatus).map(s => (
+                                   <button 
+                                       key={s} 
+                                       onClick={() => toggleStatusFilter(s)}
+                                       className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.status.includes(s) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}
+                                   >
+                                       {s}
+                                   </button>
+                               ))}
+                           </div>
+                       </div>
+                       <div className="flex items-center gap-2">
+                           <span className="text-[10px] font-bold text-stone-400 uppercase">{t.table.importance}</span>
+                           <div className="flex gap-1">
+                               {Object.values(NoteImportance).map(i => (
+                                   <button 
+                                       key={i} 
+                                       onClick={() => toggleImportanceFilter(i)}
+                                       className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.importance.includes(i) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}
+                                   >
+                                       {i === NoteImportance.HIGH ? t.importance.high : i === NoteImportance.MEDIUM ? t.importance.medium : t.importance.low}
+                                   </button>
+                               ))}
+                           </div>
+                       </div>
+                       <button onClick={() => setFilterConfig({ status: [], importance: [], dateField: 'startTime', dateRange: { start: '', end: '' }})} className="ml-auto text-xs text-blue-600 hover:underline">{t.filter.reset}</button>
+                   </div>
+               )}
             </div>
 
             {/* Table Content */}
@@ -1148,7 +1290,7 @@ const Notebook: React.FC<NotebookProps> = ({
                       )}
                       {sortedNotes.map((note, index) => {
                         const isEditing = editingId === note.id;
-                        const isDraggable = !editingId && !sortConfig && !showTodayOnly;
+                        const isDraggable = !editingId && !sortConfig && !showTodayOnly && !showFilters;
 
                         if (isEditing) {
                             return (
@@ -1183,6 +1325,7 @@ const Notebook: React.FC<NotebookProps> = ({
                                     <select className="w-full text-xs p-1 border rounded" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as NoteStatus})}>
                                         <option value={NoteStatus.TODO}>{NoteStatus.TODO}</option>
                                         <option value={NoteStatus.IN_PROGRESS}>{NoteStatus.IN_PROGRESS}</option>
+                                        <option value={NoteStatus.PARTIAL}>{NoteStatus.PARTIAL}</option>
                                         <option value={NoteStatus.DONE}>{NoteStatus.DONE}</option>
                                     </select>
                                     </div>
@@ -1236,9 +1379,10 @@ const Notebook: React.FC<NotebookProps> = ({
                                 <div style={{ width: colWidths.status }} className="px-2">
                                     <span className={`text-[9px] font-bold uppercase tracking-wider ${
                                     note.status === NoteStatus.TODO ? 'text-stone-400' :
-                                    note.status === NoteStatus.IN_PROGRESS ? 'text-blue-500' : 'text-green-500'
+                                    note.status === NoteStatus.IN_PROGRESS ? 'text-blue-500' : 
+                                    note.status === NoteStatus.PARTIAL ? 'text-orange-500' : 'text-green-500'
                                     }`}>
-                                    {t.status[note.status === NoteStatus.TODO ? 'todo' : note.status === NoteStatus.IN_PROGRESS ? 'inProgress' : 'done']}
+                                    {t.status[note.status === NoteStatus.TODO ? 'todo' : note.status === NoteStatus.IN_PROGRESS ? 'inProgress' : note.status === NoteStatus.PARTIAL ? 'partial' : 'done']}
                                     </span>
                                 </div>
                                 <div style={{ width: colWidths.reminder }} className="px-2 text-[10px] text-stone-400 font-mono">
@@ -1253,6 +1397,16 @@ const Notebook: React.FC<NotebookProps> = ({
                                         </button>
                                     )}
                                     {note.status === NoteStatus.IN_PROGRESS && (
+                                        <>
+                                            <button onClick={() => updateStatus(note.id, NoteStatus.PARTIAL)} className="p-1 rounded hover:bg-orange-100 text-orange-500 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.partialAction}>
+                                                <PieChart size={14} /> 
+                                            </button>
+                                            <button onClick={() => updateStatus(note.id, NoteStatus.DONE)} className="p-1 rounded hover:bg-green-100 text-green-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.finishAction}>
+                                                <CheckCircle size={14} />
+                                            </button>
+                                        </>
+                                    )}
+                                    {note.status === NoteStatus.PARTIAL && (
                                         <button onClick={() => updateStatus(note.id, NoteStatus.DONE)} className="p-1 rounded hover:bg-green-100 text-green-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.finishAction}>
                                             <CheckCircle size={14} /> <span className="hidden xl:inline">{t.table.finishAction}</span>
                                         </button>
@@ -1340,7 +1494,7 @@ const Notebook: React.FC<NotebookProps> = ({
 
                               <div className="p-4 bg-stone-50 rounded-xl text-stone-500 text-sm leading-relaxed border border-stone-100 mt-4">
                                   <p>{t.settingsModal.generatedBy}</p>
-                                  <p className="mt-2 text-xs opacity-50">Version 4.6.0</p>
+                                  <p className="mt-2 text-xs opacity-50">Version 4.8.0</p>
                               </div>
                           </div>
                       )}

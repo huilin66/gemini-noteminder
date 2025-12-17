@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import Notebook from './components/Notebook';
 import StickyNote from './components/StickyNote';
@@ -80,7 +81,7 @@ const App: React.FC = () => {
   
   const [books, setBooks] = useState<SmartBook[]>(DEFAULT_BOOKS);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>(DEFAULT_LLM_CONFIG);
-  const [autoSaveInterval, setAutoSaveInterval] = useState<number>(60); // Default 60 minutes
+  const [autoSaveInterval, setAutoSaveInterval] = useState<number>(0); // Default 0 (Off)
 
   const [viewState, setViewState] = useState<ViewState>({
     showGroups: true,
@@ -490,6 +491,10 @@ const App: React.FC = () => {
       });
 
       setViewState(prev => ({ ...prev, showStickies: true, showTodayStickies: false }));
+  };
+
+  const unpinAllNotes = (ids: string[]) => {
+      setNotes(prev => prev.map(n => ids.includes(n.id) ? { ...n, isPinned: false } : n));
   };
 
   const bringToFront = (id: string) => {

@@ -1,8 +1,10 @@
 
 
+
 export enum NoteStatus {
   TODO = '待执行',
   IN_PROGRESS = '执行中',
+  PARTIAL = '部分完成',
   DONE = '执行结束'
 }
 

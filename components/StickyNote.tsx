@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Note, NoteStatus, NoteImportance, NoteStyleVariant, NoteTexture, Language, NoteDecorationPosition, NotePreset } from '../types';
-import { X, MapPin, Clock, GripHorizontal, Bell, CheckCircle, PlayCircle, Settings, Pin, Paperclip, Flower, Leaf } from 'lucide-react';
+import { X, MapPin, Clock, GripHorizontal, Bell, CheckCircle, PlayCircle, Settings, Pin, Paperclip, Flower, Leaf, PieChart } from 'lucide-react';
 import { translations } from '../utils/i18n';
 import NoteStyleControls from './NoteStyleControls';
 
@@ -117,6 +117,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, presets, onUpdate, onClos
   const getStatusIcon = (s: NoteStatus) => {
     switch (s) {
       case NoteStatus.IN_PROGRESS: return <PlayCircle size={14} className="text-blue-600" />;
+      case NoteStatus.PARTIAL: return <PieChart size={14} className="text-orange-500" />;
       case NoteStatus.DONE: return <CheckCircle size={14} className="text-green-600" />;
       default: return <div className="w-3 h-3 rounded-full border border-stone-400 bg-white"></div>;
     }
