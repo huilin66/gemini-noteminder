@@ -62,5 +62,7 @@
 </head>
   <body class="bg-slate-800 overflow-hidden h-screen w-screen selection:bg-yellow-200 selection:text-black">
     <div id="root"></div>
+    <!-- 显式添加入口脚本，确保 GitHub 源码克隆后在本地环境（如 Vite）能正常加载 -->
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
