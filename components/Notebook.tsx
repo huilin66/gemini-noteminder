@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../types';
-import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart } from 'lucide-react';
+import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock } from 'lucide-react';
 import { parseNoteWithAI } from '../services/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 import { translations } from '../utils/i18n';
@@ -32,8 +32,8 @@ interface NotebookProps {
   onReorderNotes: (fromIndex: number, toIndex: number) => void;
   onBatchImport: (newGroups: Group[], newNotes: Note[]) => void; 
   onExportXLSX: () => void; 
-  autoSaveInterval: number; // New prop
-  onSetAutoSaveInterval: (minutes: number) => void; // New prop
+  autoSaveInterval: number;
+  onSetAutoSaveInterval: (minutes: number) => void;
   
   bookshelfTheme: ThemeConfig;
   setBookshelfTheme: (t: ThemeConfig) => void;
@@ -80,8 +80,8 @@ interface FilterConfig {
   importance: NoteImportance[];
   dateField: 'createdAt' | 'startTime' | 'endTime';
   dateRange: {
-    start: string; // ISO Date String
-    end: string;   // ISO Date String
+    start: string; 
+    end: string;   
   };
 }
 
@@ -149,7 +149,6 @@ const Notebook: React.FC<NotebookProps> = ({
   
   const [newPresetName, setNewPresetName] = useState('');
 
-  // --- Filter State ---
   const [showFilters, setShowFilters] = useState(false);
   const [filterConfig, setFilterConfig] = useState<FilterConfig>({
       status: [],
@@ -158,13 +157,11 @@ const Notebook: React.FC<NotebookProps> = ({
       dateRange: { start: '', end: '' }
   });
   
-  // Weekly Export State
   const [showExportRecords, setShowExportRecords] = useState(false);
   const [workDayStart, setWorkDayStart] = useState("09:00");
   const [workDayEnd, setWorkDayEnd] = useState("21:00");
   const [exportResult, setExportResult] = useState("");
 
-  // State for Preset Editor in Settings
   const [draftPreset, setDraftPreset] = useState<{
       theme: NoteTheme;
       styleVariant: NoteStyleVariant;
@@ -250,13 +247,11 @@ const Notebook: React.FC<NotebookProps> = ({
 
         filtered = filtered.filter(n => {
             if (!n.startTime) return false;
-            // Overlap logic
             const end = n.endTime || n.startTime;
             return n.startTime <= tsEnd && end >= tsStart;
         });
     }
 
-    // Apply Filters
     if (showFilters) {
         if (filterConfig.status.length > 0) {
             filtered = filtered.filter(n => filterConfig.status.includes(n.status));
@@ -272,7 +267,7 @@ const Notebook: React.FC<NotebookProps> = ({
             });
         }
         if (filterConfig.dateRange.end) {
-            const endTs = new Date(filterConfig.dateRange.end).getTime() + 86400000; // End of day roughly
+            const endTs = new Date(filterConfig.dateRange.end).getTime() + 86400000;
             filtered = filtered.filter(n => {
                 const val = n[filterConfig.dateField];
                 return val ? val < endTs : false;
@@ -280,9 +275,25 @@ const Notebook: React.FC<NotebookProps> = ({
         }
     }
 
-    if (!sortConfig) return filtered;
-    
+    const statusPriority = {
+        [NoteStatus.TODO]: 1,
+        [NoteStatus.IN_PROGRESS]: 2,
+        [NoteStatus.PARTIAL]: 3,
+        [NoteStatus.CANCELLED]: 4,
+        [NoteStatus.DONE]: 5
+    };
+
     return filtered.sort((a, b) => {
+      // 1. Stickies (isTop) always first
+      if (a.isTop && !b.isTop) return -1;
+      if (!a.isTop && b.isTop) return 1;
+
+      // 2. Custom Sorting
+      if (!sortConfig) {
+          // Default: By created reverse (if not Top)
+          return b.createdAt - a.createdAt;
+      }
+      
       let valA: any = a[sortConfig.key];
       let valB: any = b[sortConfig.key];
 
@@ -295,6 +306,11 @@ const Notebook: React.FC<NotebookProps> = ({
         const rank = { [NoteImportance.HIGH]: 3, [NoteImportance.MEDIUM]: 2, [NoteImportance.LOW]: 1 };
         valA = rank[a.importance] || 0;
         valB = rank[b.importance] || 0;
+      }
+
+      if (sortConfig.key === 'status') {
+          valA = statusPriority[a.status] || 99;
+          valB = statusPriority[b.status] || 99;
       }
 
       if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -342,10 +358,20 @@ const Notebook: React.FC<NotebookProps> = ({
     setEditingId(null);
   };
 
-  const updateStatus = (id: string, newStatus: NoteStatus) => {
+  const updateStatus = (id: string, newStatus: NoteStatus, resetTime?: 'start' | 'end') => {
       const note = notes.find(n => n.id === id);
       if (note) {
-          onUpdateNote({ ...note, status: newStatus });
+          const updates: Partial<Note> = { status: newStatus };
+          if (resetTime === 'start') updates.startTime = Date.now();
+          if (resetTime === 'end') updates.endTime = Date.now();
+          onUpdateNote({ ...note, ...updates });
+      }
+  };
+
+  const toggleTop = (id: string) => {
+      const note = notes.find(n => n.id === id);
+      if (note) {
+          onUpdateNote({ ...note, isTop: !note.isTop });
       }
   };
 
@@ -360,7 +386,6 @@ const Notebook: React.FC<NotebookProps> = ({
         decorationPosition: 'top-left' as NoteDecorationPosition
     };
 
-    // @ts-ignore
     const defaultNote: Note = {
       id: id,
       groupId: activeGroupId,
@@ -432,10 +457,7 @@ const Notebook: React.FC<NotebookProps> = ({
   const handleUnpinAll = () => {
       const idsToUnpin = sortedNotes.filter(n => n.isPinned).map(n => n.id);
       if (idsToUnpin.length === 0) return;
-      
-      idsToUnpin.forEach(id => {
-          onPinNote(id); 
-      });
+      idsToUnpin.forEach(id => onPinNote(id)); 
   };
 
   const handleAIParse = async () => {
@@ -551,10 +573,8 @@ const Notebook: React.FC<NotebookProps> = ({
       onUpdateBooks([...books, newBook]);
   };
 
-  // --- Export Records Logic ---
   const generateWeeklyReport = () => {
       const now = new Date();
-      // Calculate start of week (Monday)
       const day = now.getDay();
       const diff = now.getDate() - day + (day === 0 ? -6 : 1); 
       const startOfWeek = new Date(now.setDate(diff));
@@ -564,7 +584,6 @@ const Notebook: React.FC<NotebookProps> = ({
       endOfWeek.setDate(startOfWeek.getDate() + 6);
       endOfWeek.setHours(23, 59, 59, 999);
 
-      // Parse work hours
       const [startH, startM] = workDayStart.split(':').map(Number);
       const [endH, endM] = workDayEnd.split(':').map(Number);
 
@@ -575,44 +594,34 @@ const Notebook: React.FC<NotebookProps> = ({
       });
 
       let reportText = "";
-
       relevantNotes.forEach(n => {
           if (!n.startTime) return;
           const end = n.endTime || n.startTime;
-          
           let totalMinutes = 0;
-          
           const currentDay = new Date(n.startTime);
           const lastDay = new Date(end);
           const loopDay = new Date(currentDay);
           loopDay.setHours(0,0,0,0);
-          
           while (loopDay <= lastDay) {
               const workStart = new Date(loopDay);
               workStart.setHours(startH, startM, 0, 0);
-              
               const workEnd = new Date(loopDay);
               workEnd.setHours(endH, endM, 0, 0);
-
               const overlapStart = Math.max(n.startTime, workStart.getTime());
               const overlapEnd = Math.min(end, workEnd.getTime());
-
               if (overlapEnd > overlapStart) {
                   totalMinutes += (overlapEnd - overlapStart) / (1000 * 60);
               }
               loopDay.setDate(loopDay.getDate() + 1);
           }
-
           const hours = Math.ceil(totalMinutes / 30) * 0.5;
           const startDateStr = new Date(n.startTime).toLocaleDateString([], {month:'numeric', day:'numeric'});
           const endDateStr = new Date(end).toLocaleDateString([], {month:'numeric', day:'numeric'});
           const dateRange = startDateStr === endDateStr ? startDateStr : `${startDateStr}-${endDateStr}`;
-
           if (hours > 0) {
               reportText += `${n.content}；${dateRange}， ${hours}h\n`;
           }
       });
-
       if (!reportText) reportText = "No events found in work hours for this week.";
       setExportResult(reportText);
   };
@@ -632,7 +641,6 @@ const Notebook: React.FC<NotebookProps> = ({
       n.isReminderOn,
       n.reminderTime ? new Date(n.reminderTime).toISOString() : ''
     ].join(','));
-    
     const csvContent = [header, ...rows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -646,24 +654,20 @@ const Notebook: React.FC<NotebookProps> = ({
   const importCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (evt) => {
       const text = evt.target?.result as string;
       const lines = text.split('\n');
       if (lines.length < 2) return; 
-
       const newNotes: Note[] = [];
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
         const cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
         if (cols.length < 2) continue;
-        
         const clean = (s: string) => s ? s.replace(/^"|"$/g, '').replace(/""/g, '"') : '';
         const content = clean(cols[1]);
         if (!content) continue;
-
         const now = Date.now();
         newNotes.push({
           id: uuidv4(),
@@ -696,34 +700,27 @@ const Notebook: React.FC<NotebookProps> = ({
   const importXLSX = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
-      
       if (typeof XLSX === 'undefined') {
           alert("XLSX library not loaded.");
           return;
       }
-
       const reader = new FileReader();
       reader.onload = (evt) => {
           const data = evt.target?.result;
           const workbook = XLSX.read(data, { type: 'binary' });
-          
           let importCount = 0;
           const importedGroups: Group[] = [];
           const importedNotes: Note[] = [];
-
           workbook.SheetNames.forEach((sheetName: string) => {
-              // 1. Create a Group (Notebook) for each sheet
               const newGroupId = uuidv4();
               importedGroups.push({ id: newGroupId, name: sheetName });
-
               const worksheet = workbook.Sheets[sheetName];
               const json = XLSX.utils.sheet_to_json(worksheet);
-              
               json.forEach((row: any) => {
                   const now = Date.now();
                   importedNotes.push({
                       id: uuidv4(),
-                      groupId: newGroupId, // Assign to the new group
+                      groupId: newGroupId,
                       content: row.Content || 'Empty',
                       createdAt: row.Added ? new Date(row.Added).getTime() : now,
                       startTime: row.Start ? new Date(row.Start).getTime() : undefined,
@@ -744,13 +741,9 @@ const Notebook: React.FC<NotebookProps> = ({
                   importCount++;
               });
           });
-          
-          // Batch update App state
           if (importedGroups.length > 0) {
               onBatchImport(importedGroups, importedNotes);
-              alert(`Imported ${importCount} items into ${importedGroups.length} notebooks (from sheets).`);
-          } else {
-              alert("No valid sheets found in XLSX.");
+              alert(`Imported ${importCount} items into ${importedGroups.length} notebooks.`);
           }
       };
       reader.readAsBinaryString(file);
@@ -760,12 +753,11 @@ const Notebook: React.FC<NotebookProps> = ({
   const handleOpenFolder = async () => {
     if ('showDirectoryPicker' in window) {
       try {
-        // @ts-ignore
-        const dirHandle = await window.showDirectoryPicker();
-        alert(`Connected to folder: ${dirHandle.name}\n(Note: This app runs in a browser sandbox. To persist data to this folder automatically, a more complex file-system sync implementation is needed. Please use Export/Import for now to save your work.)`);
+        const dirHandle = await (window as any).showDirectoryPicker();
+        alert(`Connected to folder: ${dirHandle.name}`);
       } catch (err) { }
     } else {
-      alert("Your browser does not support direct folder access. Please use the Import/Export buttons to manage your data files.");
+      alert("Your browser does not support direct folder access.");
     }
   };
 
@@ -806,7 +798,6 @@ const Notebook: React.FC<NotebookProps> = ({
          setGroupsPanelWidth(newWidth);
       }
     };
-    
     const handleMouseUp = () => {
       if (resizingCol) {
           setResizingCol(null);
@@ -817,7 +808,6 @@ const Notebook: React.FC<NotebookProps> = ({
           document.body.style.cursor = 'default';
       }
     };
-
     if (resizingCol || isResizingGroups) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
@@ -829,18 +819,17 @@ const Notebook: React.FC<NotebookProps> = ({
   }, [resizingCol, isResizingGroups]);
 
   const getContainerStyle = (theme: ThemeConfig) => {
-      const style: React.CSSProperties = {
-          position: 'absolute',
+      return {
+          position: 'absolute' as const,
           inset: 0,
           zIndex: 0,
-          opacity: theme.opacity, // Apply user opacity here
+          opacity: theme.opacity,
           backgroundColor: theme.type === 'color' ? theme.value : undefined,
           backgroundImage: theme.type === 'image' ? `url(${theme.value})` : undefined,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          borderRadius: '1.5rem', // Match rounded-3xl
+          borderRadius: '1.5rem',
       };
-      return style;
   };
 
   const SortArrow = ({ column }: { column: SortKey }) => {
@@ -912,85 +901,33 @@ const Notebook: React.FC<NotebookProps> = ({
     dragGroupOverItem.current = null;
   };
 
-  const SidebarIcon = ({ 
-    icon: Icon, 
-    label, 
-    isActive, 
-    onClick, 
-    glow 
-  }: { icon: any, label: string, isActive: boolean, onClick: () => void, glow?: boolean }) => (
+  const SidebarIcon = ({ icon: Icon, label, isActive, onClick, glow }: { icon: any, label: string, isActive: boolean, onClick: () => void, glow?: boolean }) => (
      <div className="relative group/icon flex items-center justify-center w-12 h-12">
-        <button 
-           onClick={onClick}
-           className={`p-2 rounded-xl transition-all duration-300 ${isActive ? 'bg-white text-blue-600 shadow-lg scale-110' : 'text-stone-300 bg-white/10 hover:bg-white/30 hover:text-white'} ${glow ? 'shadow-[0_0_15px_rgba(255,255,255,0.6)] animate-pulse' : ''}`}
-        >
+        <button onClick={onClick} className={`p-2 rounded-xl transition-all duration-300 ${isActive ? 'bg-white text-blue-600 shadow-lg scale-110' : 'text-stone-300 bg-white/10 hover:bg-white/30 hover:text-white'} ${glow ? 'shadow-[0_0_15px_rgba(255,255,255,0.6)] animate-pulse' : ''}`}>
            <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
         </button>
-        <div className="absolute left-full ml-3 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover/icon:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">
-            {label}
-        </div>
+        <div className="absolute left-full ml-3 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover/icon:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">{label}</div>
      </div>
   );
 
-  const renderPreviewNote = () => {
-      const dummyNote: Note = {
-          id: 'preview',
-          groupId: '',
-          content: 'This is a style preview.',
-          createdAt: Date.now(),
-          startTime: Date.now(),
-          endTime: Date.now() + 3600000,
-          status: NoteStatus.TODO,
-          importance: NoteImportance.MEDIUM,
-          isReminderOn: false,
-          isPinned: true,
-          position: { x: 35, y: 40 },
-          zIndex: 1,
-          theme: draftPreset.theme,
-          styleVariant: draftPreset.styleVariant,
-          textureVariant: draftPreset.textureVariant,
-          decorationPosition: draftPreset.decorationPosition,
-          dimensions: { width: 220, height: 220 }
-      };
-      
-      return (
-          <div className="relative w-full h-full pointer-events-none select-none overflow-hidden scale-75 origin-top-left" style={{ transform: 'scale(0.75) translate(20px, 20px)' }}>
-              <StickyNote 
-                note={dummyNote} 
-                presets={[]} 
-                onUpdate={()=>{}} 
-                onClose={()=>{}} 
-                onFocus={()=>{}} 
-                language={language} 
-              />
-          </div>
-      )
-  }
-
   const toggleStatusFilter = (status: NoteStatus) => {
       setFilterConfig(prev => {
-          const newStatus = prev.status.includes(status) 
-              ? prev.status.filter(s => s !== status)
-              : [...prev.status, status];
+          const newStatus = prev.status.includes(status) ? prev.status.filter(s => s !== status) : [...prev.status, status];
           return { ...prev, status: newStatus };
       });
   };
 
   const toggleImportanceFilter = (imp: NoteImportance) => {
       setFilterConfig(prev => {
-          const newImp = prev.importance.includes(imp) 
-              ? prev.importance.filter(i => i !== imp)
-              : [...prev.importance, imp];
+          const newImp = prev.importance.includes(imp) ? prev.importance.filter(i => i !== imp) : [...prev.importance, imp];
           return { ...prev, importance: newImp };
       });
   };
 
   return (
     <div className="flex w-full h-full max-w-[1800px] mx-auto transition-all relative justify-center pointer-events-none">
-      
-      {/* ... Sidebar ... */}
+      {/* Sidebar */}
       <div className="fixed left-0 top-1/2 -translate-y-1/2 w-20 z-[900] flex flex-col items-center justify-start py-6 gap-0 -translate-x-[65%] hover:translate-x-0 transition-transform duration-300 bg-stone-900/80 backdrop-blur-md rounded-r-2xl shadow-2xl border-y border-r border-white/10 group pointer-events-auto">
-          {/* ... Icons ... */}
           <div className="absolute right-0 top-0 bottom-0 w-8 cursor-pointer flex items-center justify-center">
               <div className="w-1 h-12 bg-white/30 rounded-full group-hover:bg-white/50 transition-colors"></div>
           </div>
@@ -1008,96 +945,44 @@ const Notebook: React.FC<NotebookProps> = ({
           </div>
       </div>
 
-      {/* --- Groups Panel --- */}
-      <div 
-         className={`relative transition-all duration-500 ease-in-out flex flex-col gap-2 shrink-0 pointer-events-auto ${viewState.showGroups ? 'opacity-100 mr-1' : 'w-0 opacity-0 mr-0 overflow-hidden'}`}
-         style={{ width: viewState.showGroups ? groupsPanelWidth : 0 }}
-      >
+      {/* Groups Panel */}
+      <div className={`relative transition-all duration-500 ease-in-out flex flex-col gap-2 shrink-0 pointer-events-auto ${viewState.showGroups ? 'opacity-100 mr-1' : 'w-0 opacity-0 mr-0 overflow-hidden'}`} style={{ width: viewState.showGroups ? groupsPanelWidth : 0 }}>
         <div className="relative w-full h-full rounded-3xl shadow-xl overflow-hidden border border-white/20 flex flex-col" style={getContainerStyle(notebookTheme)}>
           <div className="relative z-10 w-full h-full flex flex-col bg-white/30">
             {notebookTheme.texture && notebookTheme.texture !== 'solid' && (
-                  <div className={`absolute inset-0 pointer-events-none opacity-20 ${
-                    notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : 
-                    notebookTheme.texture === 'grid' ? 'bg-pattern-grid' : 
-                    notebookTheme.texture === 'dots' ? 'bg-pattern-dots' : ''
-                  }`}></div>
+                  <div className={`absolute inset-0 pointer-events-none opacity-20 ${notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : notebookTheme.texture === 'grid' ? 'bg-pattern-grid' : 'bg-pattern-dots'}`}></div>
             )}
             <div className="p-4 h-full overflow-y-auto flex flex-col">
-              <div className="text-xs font-bold text-stone-500 px-2 py-1 uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Library size={12} /> {t.groups.title}
-              </div>
+              <div className="text-xs font-bold text-stone-500 px-2 py-1 uppercase tracking-wider mb-2 flex items-center gap-2"><Library size={12} /> {t.groups.title}</div>
               {groups.map((group, index) => (
-                  <div 
-                  key={group.id}
-                  draggable={!editingGroupId}
-                  onDragStart={(e) => handleGroupDragStart(e, index)}
-                  onDragEnter={(e) => handleGroupDragEnter(e, index)}
-                  onDragEnd={handleGroupDragEnd}
-                  onDragOver={(e) => e.preventDefault()}
-                  onClick={() => onSetActiveGroupId(group.id)}
-                  onDoubleClick={() => { setEditingGroupId(group.id); setTempGroupName(group.name); }}
-                  className={`p-3 mb-2 rounded-xl cursor-pointer text-sm font-medium transition-all flex items-center justify-between group/item border border-transparent ${activeGroupId === group.id ? 'bg-stone-800 text-white shadow-md border-stone-600' : 'hover:bg-black/5 text-stone-700 hover:border-black/10'}`}
-                  >
+                  <div key={group.id} draggable={!editingGroupId} onDragStart={(e) => handleGroupDragStart(e, index)} onDragEnter={(e) => handleGroupDragEnter(e, index)} onDragEnd={handleGroupDragEnd} onDragOver={(e) => e.preventDefault()} onClick={() => onSetActiveGroupId(group.id)} onDoubleClick={() => { setEditingGroupId(group.id); setTempGroupName(group.name); }} className={`p-3 mb-2 rounded-xl cursor-pointer text-sm font-medium transition-all flex items-center justify-between group/item border border-transparent ${activeGroupId === group.id ? 'bg-stone-800 text-white shadow-md border-stone-600' : 'hover:bg-black/5 text-stone-700 hover:border-black/10'}`}>
                   <div className="flex items-center gap-2 overflow-hidden flex-1">
-                      <div className="cursor-grab active:cursor-grabbing text-stone-400 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                          <GripVertical size={12} />
-                      </div>
+                      <div className="cursor-grab active:cursor-grabbing text-stone-400 opacity-0 group-hover/item:opacity-100 transition-opacity"><GripVertical size={12} /></div>
                       {editingGroupId === group.id ? (
-                          <input 
-                          autoFocus 
-                          className="w-full bg-white text-black rounded px-1 outline-none"
-                          value={tempGroupName}
-                          onChange={(e) => setTempGroupName(e.target.value)}
-                          onBlur={() => { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }}
-                          onKeyDown={(e) => { if(e.key === 'Enter') { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }}}
-                          />
-                      ) : (
-                          <span className="truncate">{group.name}</span>
-                      )}
+                          <input autoFocus className="w-full bg-white text-black rounded px-1 outline-none" value={tempGroupName} onChange={(e) => setTempGroupName(e.target.value)} onBlur={() => { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }} onKeyDown={(e) => { if(e.key === 'Enter') { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }}} />
+                      ) : ( <span className="truncate">{group.name}</span> )}
                   </div>
                   {groups.length > 1 && (
-                      <button 
-                      onClick={(e) => { e.stopPropagation(); requestDeleteGroup(group.id, group.name); }}
-                      className="opacity-0 group-hover/item:opacity-100 hover:text-red-400 p-1 transition-opacity shrink-0"
-                      title="Delete Notebook"
-                      >
-                      <X size={12} />
-                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); requestDeleteGroup(group.id, group.name); }} className="opacity-0 group-hover/item:opacity-100 hover:text-red-400 p-1 transition-opacity shrink-0"><X size={12} /></button>
                   )}
                   </div>
               ))}
-              <button onClick={onCreateGroup} className="mt-2 p-3 border-2 border-dashed border-black/10 rounded-xl text-black/40 hover:border-black/30 hover:text-black/60 flex justify-center transition-colors" title={t.groups.newGroup}>
-                  <Plus size={18} />
-              </button>
+              <button onClick={onCreateGroup} className="mt-2 p-3 border-2 border-dashed border-black/10 rounded-xl text-black/40 hover:border-black/30 hover:text-black/60 flex justify-center transition-colors"><Plus size={18} /></button>
             </div>
           </div>
         </div>
-        {viewState.showGroups && (
-            <div 
-                className="absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 z-50 transition-colors pointer-events-auto"
-                onMouseDown={handleGroupsPanelResizeStart}
-            ></div>
-        )}
+        {viewState.showGroups && <div className="absolute right-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 z-50 transition-colors pointer-events-auto" onMouseDown={handleGroupsPanelResizeStart}></div>}
       </div>
 
-      {/* --- Main Table Panel --- */}
+      {/* Main Table Panel */}
       <div className={`relative transition-all duration-500 ease-in-out flex flex-col overflow-hidden pointer-events-auto ${viewState.showNotebook ? 'flex-1 opacity-100 translate-x-0' : 'w-0 opacity-0 translate-x-10'}`}>
          <div className="relative w-full h-full rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-white/20">
-             
              <div style={getContainerStyle(notebookTheme)}></div>
-
              {notebookTheme.texture && notebookTheme.texture !== 'solid' && (
-                  <div className={`absolute inset-0 pointer-events-none opacity-20 z-0 ${
-                    notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : 
-                    notebookTheme.texture === 'grid' ? 'bg-pattern-grid' : 
-                    notebookTheme.texture === 'dots' ? 'bg-pattern-dots' : ''
-                  }`}></div>
+                  <div className={`absolute inset-0 pointer-events-none opacity-20 z-0 ${notebookTheme.texture === 'lined' ? 'bg-pattern-lines' : notebookTheme.texture === 'grid' ? 'bg-pattern-grid' : 'bg-pattern-dots'}`}></div>
              )}
-
             <div className="absolute left-0 top-0 bottom-0 w-3 z-20 flex flex-col justify-evenly py-4 opacity-50">
-               {Array.from({ length: 12 }).map((_, i) => (
-               <div key={i} className="w-6 h-3 -ml-4 rounded-full bg-stone-400 shadow-sm border border-stone-500 rotate-12"></div>
-               ))}
+               {Array.from({ length: 12 }).map((_, i) => ( <div key={i} className="w-6 h-3 -ml-4 rounded-full bg-stone-400 shadow-sm border border-stone-500 rotate-12"></div> ))}
             </div>
 
             {/* Toolbar */}
@@ -1107,106 +992,36 @@ const Notebook: React.FC<NotebookProps> = ({
                       <div className="flex items-center gap-2">
                           <PenLine className="text-stone-600" />
                           {isEditingTitle ? (
-                              <input 
-                                autoFocus
-                                className="text-xl font-bold text-stone-800 bg-white/50 px-1 rounded border border-stone-300 outline-none"
-                                value={tempTitle}
-                                onChange={(e) => setTempTitle(e.target.value)}
-                                onBlur={handleTitleSave}
-                                onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()}
-                              />
+                              <input autoFocus className="text-xl font-bold text-stone-800 bg-white/50 px-1 rounded border border-stone-300 outline-none" value={tempTitle} onChange={(e) => setTempTitle(e.target.value)} onBlur={handleTitleSave} onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()} />
                           ) : (
-                              <h1 
-                                className="text-xl font-bold text-stone-800 cursor-text hover:bg-black/5 rounded px-1 transition-colors"
-                                onDoubleClick={handleTitleDoubleClick}
-                                title={t.toolbar.doubleClick}
-                              >
-                                {activeGroup?.name || "Notebook"}
-                              </h1>
+                              <h1 className="text-xl font-bold text-stone-800 cursor-text hover:bg-black/5 rounded px-1 transition-colors" onDoubleClick={handleTitleDoubleClick}>{activeGroup?.name || "Notebook"}</h1>
                           )}
                       </div>
                       <p className="text-[10px] text-stone-500 ml-8">
-                         {showTodayOnly 
-                           ? <span className="text-blue-600 font-bold flex items-center gap-1"><Calendar size={10}/> {t.sidebar.today}</span> 
-                           : sortConfig ? t.toolbar.sortingActive : t.toolbar.dragToReorder}
+                         {showTodayOnly ? <span className="text-blue-600 font-bold flex items-center gap-1"><Calendar size={10}/> {t.sidebar.today}</span> : sortConfig ? t.toolbar.sortingActive : t.toolbar.dragToReorder}
                       </p>
                    </div>
-                   
                    <div className="flex gap-2 items-center">
-                       <button
-                         onClick={() => setShowFilters(!showFilters)}
-                         className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow active:scale-95 transform ${showFilters ? 'bg-blue-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-50'}`}
-                         title={t.toolbar.filter}
-                       >
-                         <Filter size={16} /> <span className="hidden sm:inline">{t.toolbar.filter}</span>
-                       </button>
-
-                       <button
-                         onClick={() => setShowExportRecords(true)}
-                         className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"
-                         title="Weekly Report"
-                       >
-                         <FileText size={16} /> <span className="hidden sm:inline">{t.dataMenu.exportRecords}</span>
-                       </button>
-
-                       <button
-                         onClick={handleBatchPin}
-                         className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"
-                         title={t.toolbar.pinAllTitle}
-                      >
-                         <Layers size={16} /> <span className="hidden sm:inline">{t.toolbar.pinAll}</span>
-                      </button>
-
-                      <button
-                         onClick={handleUnpinAll}
-                         className="flex items-center gap-1 px-3 py-1.5 bg-stone-200 text-stone-700 rounded-lg hover:bg-stone-300 transition-colors text-sm font-medium shadow active:scale-95 transform"
-                         title={t.toolbar.unpinAllTitle}
-                      >
-                         <PinOff size={16} /> <span className="hidden sm:inline">{t.toolbar.unpinAll}</span>
-                      </button>
-
-                      <button
-                         onClick={createEmptyEvent}
-                         className="flex items-center gap-1 px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700 transition-colors text-sm font-medium shadow-lg hover:shadow-xl active:scale-95 transform"
-                      >
-                         <Plus size={16} /> <span className="hidden sm:inline">{t.toolbar.newEvent}</span>
-                      </button>
-
-                      <div className="h-6 w-px bg-stone-300 mx-2"></div>
-
-                      <div className="relative group">
-                         <button className="p-2 text-stone-600 hover:bg-stone-200 rounded-lg transition-colors flex items-center gap-1" title={t.toolbar.dataOptions}>
-                            <FolderOpen size={18} />
-                         </button>
-                         <div className="absolute right-0 top-full pt-2 w-56 hidden group-hover:block">
-                            <div className="bg-white rounded-lg shadow-xl border border-stone-100 p-1">
-                               {/* ... Menu Options ... */}
-                               <button onClick={handleOpenFolder} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700 font-bold border-b border-stone-100">
-                                   <Folder size={14} className="text-yellow-500" /> {t.dataMenu.openFolder}
-                               </button>
-                               
-                               {/* CSV Options */}
-                               <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider">CSV</div>
-                               <button onClick={exportCSV} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700">
-                                  <FileDown size={14} className="text-blue-500" /> {t.dataMenu.exportCSV}
-                               </button>
-                               <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700">
-                                  <FileUp size={14} className="text-green-500" /> {t.dataMenu.importCSV}
-                                  <input type="file" accept=".csv" className="hidden" ref={csvInputRef} onChange={importCSV} />
-                               </label>
-
-                               {/* XLSX Options */}
-                               <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider border-t border-stone-100 mt-1">XLSX (Excel)</div>
-                               <button onClick={onExportXLSX} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700">
-                                  <Sheet size={14} className="text-green-600" /> {t.dataMenu.exportXLSX}
-                               </button>
-                               <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700">
-                                  <FileUp size={14} className="text-green-600" /> {t.dataMenu.importXLSX}
-                                  <input type="file" accept=".xlsx,.xls" className="hidden" ref={xlsxInputRef} onChange={importXLSX} />
-                               </label>
-                            </div>
-                         </div>
-                      </div>
+                       <button onClick={() => setShowFilters(!showFilters)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow active:scale-95 transform ${showFilters ? 'bg-blue-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-50'}`}><Filter size={16} /> <span className="hidden sm:inline">{t.toolbar.filter}</span></button>
+                       <button onClick={() => setShowExportRecords(true)} className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"><FileText size={16} /> <span className="hidden sm:inline">{t.dataMenu.exportRecords}</span></button>
+                       <button onClick={handleBatchPin} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform" title={t.toolbar.pinAllTitle}><Layers size={16} /> <span className="hidden sm:inline">{t.toolbar.pinAll}</span></button>
+                       <button onClick={handleUnpinAll} className="flex items-center gap-1 px-3 py-1.5 bg-stone-200 text-stone-700 rounded-lg hover:bg-stone-300 transition-colors text-sm font-medium shadow active:scale-95 transform" title={t.toolbar.unpinAllTitle}><PinOff size={16} /> <span className="hidden sm:inline">{t.toolbar.unpinAll}</span></button>
+                       <button onClick={createEmptyEvent} className="flex items-center gap-1 px-3 py-1.5 bg-stone-800 text-white rounded-lg hover:bg-stone-700 transition-colors text-sm font-medium shadow-lg hover:shadow-xl active:scale-95 transform"><Plus size={16} /> <span className="hidden sm:inline">{t.toolbar.newEvent}</span></button>
+                       <div className="h-6 w-px bg-stone-300 mx-2"></div>
+                       <div className="relative group">
+                          <button className="p-2 text-stone-600 hover:bg-stone-200 rounded-lg transition-colors flex items-center gap-1" title={t.toolbar.dataOptions}><FolderOpen size={18} /></button>
+                          <div className="absolute right-0 top-full pt-2 w-56 hidden group-hover:block">
+                             <div className="bg-white rounded-lg shadow-xl border border-stone-100 p-1">
+                                <button onClick={handleOpenFolder} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700 font-bold border-b border-stone-100"><Folder size={14} className="text-yellow-500" /> {t.dataMenu.openFolder}</button>
+                                <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider">CSV</div>
+                                <button onClick={exportCSV} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700"><FileDown size={14} className="text-blue-500" /> {t.dataMenu.exportCSV}</button>
+                                <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700"><FileUp size={14} className="text-green-500" /> {t.dataMenu.importCSV} <input type="file" accept=".csv" className="hidden" ref={csvInputRef} onChange={importCSV} /></label>
+                                <div className="p-1.5 text-[10px] text-stone-400 font-bold uppercase tracking-wider border-t border-stone-100 mt-1">XLSX (Excel)</div>
+                                <button onClick={onExportXLSX} className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded text-stone-700"><Sheet size={14} className="text-green-600" /> {t.dataMenu.exportXLSX}</button>
+                                <label className="flex items-center gap-2 w-full p-2 text-xs hover:bg-stone-100 text-left rounded cursor-pointer text-stone-700"><FileUp size={14} className="text-green-600" /> {t.dataMenu.importXLSX} <input type="file" accept=".xlsx,.xls" className="hidden" ref={xlsxInputRef} onChange={importXLSX} /></label>
+                             </div>
+                          </div>
+                       </div>
                    </div>
                </div>
 
@@ -1215,11 +1030,7 @@ const Notebook: React.FC<NotebookProps> = ({
                    <div className="p-2 px-4 bg-stone-100 border-t border-stone-200 flex items-center flex-wrap gap-4 animate-in slide-in-from-top-2">
                        <div className="flex items-center gap-2">
                            <span className="text-[10px] font-bold text-stone-400 uppercase">{t.filter.dateField}</span>
-                           <select 
-                               value={filterConfig.dateField} 
-                               onChange={e => setFilterConfig({...filterConfig, dateField: e.target.value as any})}
-                               className="text-xs p-1 rounded border border-stone-300"
-                           >
+                           <select value={filterConfig.dateField} onChange={e => setFilterConfig({...filterConfig, dateField: e.target.value as any})} className="text-xs p-1 rounded border border-stone-300">
                                <option value="createdAt">{t.table.added}</option>
                                <option value="startTime">{t.table.start}</option>
                                <option value="endTime">{t.table.end}</option>
@@ -1234,29 +1045,13 @@ const Notebook: React.FC<NotebookProps> = ({
                        <div className="flex items-center gap-2">
                            <span className="text-[10px] font-bold text-stone-400 uppercase">{t.table.status}</span>
                            <div className="flex gap-1">
-                               {Object.values(NoteStatus).map(s => (
-                                   <button 
-                                       key={s} 
-                                       onClick={() => toggleStatusFilter(s)}
-                                       className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.status.includes(s) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}
-                                   >
-                                       {s}
-                                   </button>
-                               ))}
+                               {Object.values(NoteStatus).map(s => ( <button key={s} onClick={() => toggleStatusFilter(s)} className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.status.includes(s) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}>{s}</button> ))}
                            </div>
                        </div>
                        <div className="flex items-center gap-2">
                            <span className="text-[10px] font-bold text-stone-400 uppercase">{t.table.importance}</span>
                            <div className="flex gap-1">
-                               {Object.values(NoteImportance).map(i => (
-                                   <button 
-                                       key={i} 
-                                       onClick={() => toggleImportanceFilter(i)}
-                                       className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.importance.includes(i) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}
-                                   >
-                                       {i === NoteImportance.HIGH ? t.importance.high : i === NoteImportance.MEDIUM ? t.importance.medium : t.importance.low}
-                                   </button>
-                               ))}
+                               {Object.values(NoteImportance).map(i => ( <button key={i} onClick={() => toggleImportanceFilter(i)} className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.importance.includes(i) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}>{i === NoteImportance.HIGH ? t.importance.high : i === NoteImportance.MEDIUM ? t.importance.medium : t.importance.low}</button> ))}
                            </div>
                        </div>
                        <button onClick={() => setFilterConfig({ status: [], importance: [], dateField: 'startTime', dateRange: { start: '', end: '' }})} className="ml-auto text-xs text-blue-600 hover:underline">{t.filter.reset}</button>
@@ -1267,7 +1062,6 @@ const Notebook: React.FC<NotebookProps> = ({
             {/* Table Content */}
             <div className="flex-1 overflow-auto notebook-scroll paper-lines relative z-10">
                <div style={{ width: (Object.values(colWidths) as number[]).reduce((a, b) => a + b, 0) + 40, minWidth: '100%' }}>
-                  
                   <div className="flex sticky top-0 z-10 shadow-sm h-9 pl-4 border-b border-stone-300/50 bg-white/40 backdrop-blur-md">
                       <HeaderCell label={t.table.content} colKey="content" />
                       <HeaderCell label={t.table.added} colKey="createdAt" sortKey="createdAt" />
@@ -1277,148 +1071,72 @@ const Notebook: React.FC<NotebookProps> = ({
                       <HeaderCell label={t.table.importance} colKey="importance" sortKey="importance" />
                       <HeaderCell label={t.table.status} colKey="status" sortKey="status" />
                       <HeaderCell label={t.table.reminder} colKey="reminder" sortKey="reminderTime" />
-                      <div style={{ width: colWidths.actions }} className="flex items-center justify-end px-2 text-xs font-bold text-stone-600 uppercase bg-stone-50/80 backdrop-blur-sm">
-                        {t.table.actions}
-                      </div>
+                      <div style={{ width: colWidths.actions }} className="flex items-center justify-end px-2 text-xs font-bold text-stone-600 uppercase bg-stone-50/80 backdrop-blur-sm">{t.table.actions}</div>
                   </div>
 
                   <div className="pb-10 pl-4">
-                      {sortedNotes.length === 0 && (
-                          <div className="text-center py-12 text-stone-500/50 italic">
-                              {t.table.empty}
-                          </div>
-                      )}
+                      {sortedNotes.length === 0 && <div className="text-center py-12 text-stone-500/50 italic">{t.table.empty}</div>}
                       {sortedNotes.map((note, index) => {
                         const isEditing = editingId === note.id;
                         const isDraggable = !editingId && !sortConfig && !showTodayOnly && !showFilters;
-
                         if (isEditing) {
                             return (
                                 <div key={note.id} className="flex items-start border-b border-blue-200 bg-blue-50/90 backdrop-blur-sm">
-                                    <div style={{ width: colWidths.content }} className="p-2">
-                                    <div className="flex gap-1">
-                                        <input autoFocus className="w-full text-sm p-1.5 border rounded" placeholder="Event description..." value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} />
-                                        <button onClick={handleAIParse} disabled={isProcessingAI} className="p-1 bg-indigo-100 text-indigo-600 rounded"><Sparkles size={14} className={isProcessingAI ? 'animate-spin' : ''} /></button>
-                                    </div>
-                                    </div>
-                                    <div style={{ width: colWidths.createdAt }} className="p-2">
-                                        <TimePicker value={formData.createdAt} onChange={(v) => setFormData({...formData, createdAt: v})} />
-                                    </div>
-                                    <div style={{ width: colWidths.startTime }} className="p-2">
-                                    <TimePicker 
-                                        value={formData.startTime} 
-                                        onChange={(v) => setFormData({ ...formData, startTime: v, endTime: (!formData.endTime || formData.endTime === formData.startTime) ? v : formData.endTime })} 
-                                    />
-                                    </div>
-                                    <div style={{ width: colWidths.endTime }} className="p-2">
-                                    <TimePicker value={formData.endTime} onChange={(v) => setFormData({...formData, endTime: v})} />
-                                    </div>
+                                    <div style={{ width: colWidths.content }} className="p-2"><div className="flex gap-1"><input autoFocus className="w-full text-sm p-1.5 border rounded" placeholder="Event description..." value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} /><button onClick={handleAIParse} disabled={isProcessingAI} className="p-1 bg-indigo-100 text-indigo-600 rounded"><Sparkles size={14} className={isProcessingAI ? 'animate-spin' : ''} /></button></div></div>
+                                    <div style={{ width: colWidths.createdAt }} className="p-2"><TimePicker value={formData.createdAt} onChange={(v) => setFormData({...formData, createdAt: v})} /></div>
+                                    <div style={{ width: colWidths.startTime }} className="p-2"><TimePicker value={formData.startTime} onChange={(v) => setFormData({ ...formData, startTime: v, endTime: (!formData.endTime || formData.endTime === formData.startTime) ? v : formData.endTime })} /></div>
+                                    <div style={{ width: colWidths.endTime }} className="p-2"><TimePicker value={formData.endTime} onChange={(v) => setFormData({...formData, endTime: v})} /></div>
                                     <div style={{ width: colWidths.location }} className="p-2"><input className="w-full text-xs p-1 border rounded" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} /></div>
-                                    <div style={{ width: colWidths.importance }} className="p-2">
-                                    <select className="w-full text-xs p-1 border rounded" value={formData.importance} onChange={e => setFormData({...formData, importance: e.target.value as NoteImportance})}>
-                                        <option value={NoteImportance.HIGH}>{t.importance.high}</option>
-                                        <option value={NoteImportance.MEDIUM}>{t.importance.medium}</option>
-                                        <option value={NoteImportance.LOW}>{t.importance.low}</option>
-                                    </select>
-                                    </div>
-                                    <div style={{ width: colWidths.status }} className="p-2">
-                                    <select className="w-full text-xs p-1 border rounded" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as NoteStatus})}>
-                                        <option value={NoteStatus.TODO}>{NoteStatus.TODO}</option>
-                                        <option value={NoteStatus.IN_PROGRESS}>{NoteStatus.IN_PROGRESS}</option>
-                                        <option value={NoteStatus.PARTIAL}>{NoteStatus.PARTIAL}</option>
-                                        <option value={NoteStatus.DONE}>{NoteStatus.DONE}</option>
-                                    </select>
-                                    </div>
-                                    <div style={{ width: colWidths.reminder }} className="p-2">
-                                    <button onClick={() => setFormData(prev => ({...prev, isReminderOn: !prev.isReminderOn}))} className={`w-full text-[10px] p-1 mb-1 rounded border ${formData.isReminderOn ? 'bg-blue-100 text-blue-700' : 'bg-stone-100'}`}>{formData.isReminderOn ? 'ON' : 'OFF'}</button>
-                                    {formData.isReminderOn && <TimePicker value={formData.reminderTime} onChange={(v) => setFormData({...formData, reminderTime: v})} />}
-                                    </div>
-                                    <div style={{ width: colWidths.actions }} className="p-2 flex justify-end gap-1">
-                                    <button onClick={() => saveEditing(note.id)} className="p-1.5 bg-green-600 text-white rounded"><Save size={14} /></button>
-                                    <button onClick={() => setEditingId(null)} className="p-1.5 bg-stone-200 text-stone-600 rounded"><X size={14} /></button>
-                                    </div>
+                                    <div style={{ width: colWidths.importance }} className="p-2"><select className="w-full text-xs p-1 border rounded" value={formData.importance} onChange={e => setFormData({...formData, importance: e.target.value as NoteImportance})}><option value={NoteImportance.HIGH}>{t.importance.high}</option><option value={NoteImportance.MEDIUM}>{t.importance.medium}</option><option value={NoteImportance.LOW}>{t.importance.low}</option></select></div>
+                                    <div style={{ width: colWidths.status }} className="p-2"><select className="w-full text-xs p-1 border rounded" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as NoteStatus})}>{Object.values(NoteStatus).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                                    <div style={{ width: colWidths.reminder }} className="p-2"><button onClick={() => setFormData(prev => ({...prev, isReminderOn: !prev.isReminderOn}))} className={`w-full text-[10px] p-1 mb-1 rounded border ${formData.isReminderOn ? 'bg-blue-100 text-blue-700' : 'bg-stone-100'}`}>{formData.isReminderOn ? 'ON' : 'OFF'}</button>{formData.isReminderOn && <TimePicker value={formData.reminderTime} onChange={(v) => setFormData({...formData, reminderTime: v})} />}</div>
+                                    <div style={{ width: colWidths.actions }} className="p-2 flex justify-end gap-1"><button onClick={() => saveEditing(note.id)} className="p-1.5 bg-green-600 text-white rounded"><Save size={14} /></button><button onClick={() => setEditingId(null)} className="p-1.5 bg-stone-200 text-stone-600 rounded"><X size={14} /></button></div>
                                 </div>
                             );
                         }
 
                         return (
-                            <div 
-                                key={note.id}
-                                draggable={isDraggable}
-                                onDragStart={(e) => handleDragStart(e, index)}
-                                onDragEnter={(e) => handleDragEnter(e, index)}
-                                onDragEnd={handleDragEnd}
-                                onDragOver={(e) => e.preventDefault()}
-                                onDoubleClick={() => startEditing(note)}
-                                onAuxClick={(e) => { if(e.button === 1) { e.preventDefault(); onPinNote(note.id, e.clientX, e.clientY); }}}
-                                className={`flex items-center border-b border-transparent hover:border-black/10 hover:bg-black/5 transition-colors group h-12 ${note.status === NoteStatus.DONE ? 'opacity-60 grayscale-[0.5]' : ''} ${note.isPinned ? 'bg-indigo-50/50' : ''}`}
-                            >
+                            <div key={note.id} draggable={isDraggable} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} onDoubleClick={() => startEditing(note)} className={`flex items-center border-b border-transparent hover:border-black/10 hover:bg-black/5 transition-colors group h-12 ${note.status === NoteStatus.DONE || note.status === NoteStatus.CANCELLED ? 'opacity-60 grayscale-[0.5]' : ''} ${note.isPinned ? 'bg-indigo-50/50' : ''}`}>
                                 <div style={{ width: colWidths.content }} className="flex items-center gap-2 px-2 overflow-hidden relative h-full">
-                                    <div className={`absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 ${isDraggable ? 'cursor-move text-stone-400' : 'cursor-not-allowed text-stone-200'}`}>
-                                    <GripVertical size={12} />
+                                    <div className={`absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 flex items-center gap-1 ${isDraggable ? 'cursor-move text-stone-400' : 'cursor-not-allowed text-stone-200'}`}>
+                                        <GripVertical size={12} />
+                                        <button onClick={(e) => { e.stopPropagation(); toggleTop(note.id); }} className={`p-1 rounded hover:bg-stone-200 ${note.isTop ? 'text-blue-500' : 'text-stone-300'}`} title={t.table.pinTop}><Pin size={10} /></button>
                                     </div>
-                                    <div className="pl-4 flex items-center gap-2 w-full truncate">
-                                    {note.isPinned && <Pin size={12} className="text-indigo-500 shrink-0" />}
-                                    <span className={`font-medium text-stone-800 truncate text-sm ${note.status === NoteStatus.DONE ? 'line-through decoration-stone-400' : ''}`} title={note.content}>
-                                        {note.content}
-                                    </span>
+                                    <div className="pl-10 flex items-center gap-2 w-full truncate">
+                                    {note.isPinned && <StickyNoteIcon size={12} className="text-indigo-500 shrink-0" />}
+                                    <span className={`font-medium text-stone-800 truncate text-sm ${note.status === NoteStatus.DONE ? 'line-through decoration-stone-400' : ''}`} title={note.content}> {note.content} </span>
                                     </div>
                                 </div>
                                 <div style={{ width: colWidths.createdAt }} className="px-2 text-xs text-stone-500 truncate">{formatDate(note.createdAt)}</div>
                                 <div style={{ width: colWidths.startTime }} className="px-2 text-xs text-stone-800 font-mono truncate">{note.startTime ? formatDate(note.startTime) : '-'}</div>
                                 <div style={{ width: colWidths.endTime }} className="px-2 text-xs text-stone-400 font-mono truncate">{note.endTime ? formatDate(note.endTime) : '-'}</div>
                                 <div style={{ width: colWidths.location }} className="px-2 text-xs text-stone-500 truncate" title={note.location}>{note.location && note.location !== '无' ? (<span className="flex items-center gap-1"><MapPin size={10} /> {note.location}</span>) : '-'}</div>
-                                <div style={{ width: colWidths.importance }} className="px-2">
-                                    <span className={`text-[9px] px-1.5 py-0.5 rounded border font-medium ${
-                                    note.importance === NoteImportance.HIGH ? 'bg-red-50 text-red-600 border-red-200' : 
-                                    note.importance === NoteImportance.LOW ? 'bg-green-50 text-green-600 border-green-200' : 'bg-orange-50 text-orange-600 border-orange-200'
-                                    }`}>
-                                    {note.importance === NoteImportance.HIGH ? t.importance.high : note.importance === NoteImportance.MEDIUM ? t.importance.medium : t.importance.low}
-                                    </span>
-                                </div>
-                                <div style={{ width: colWidths.status }} className="px-2">
-                                    <span className={`text-[9px] font-bold uppercase tracking-wider ${
-                                    note.status === NoteStatus.TODO ? 'text-stone-400' :
-                                    note.status === NoteStatus.IN_PROGRESS ? 'text-blue-500' : 
-                                    note.status === NoteStatus.PARTIAL ? 'text-orange-500' : 'text-green-500'
-                                    }`}>
-                                    {t.status[note.status === NoteStatus.TODO ? 'todo' : note.status === NoteStatus.IN_PROGRESS ? 'inProgress' : note.status === NoteStatus.PARTIAL ? 'partial' : 'done']}
-                                    </span>
-                                </div>
-                                <div style={{ width: colWidths.reminder }} className="px-2 text-[10px] text-stone-400 font-mono">
-                                    {note.isReminderOn && note.reminderTime ? (
-                                    <span className="text-blue-600 flex items-center gap-1"><Bell size={10} /> {formatDate(note.reminderTime)}</span>
-                                    ) : '-'}
-                                </div>
-                                <div style={{ width: colWidths.actions }} className="px-2 flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div style={{ width: colWidths.importance }} className="px-2"><span className={`text-[9px] px-1.5 py-0.5 rounded border font-medium ${note.importance === NoteImportance.HIGH ? 'bg-red-50 text-red-600 border-red-200' : note.importance === NoteImportance.LOW ? 'bg-green-50 text-green-600 border-green-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}> {note.importance === NoteImportance.HIGH ? t.importance.high : note.importance === NoteImportance.MEDIUM ? t.importance.medium : t.importance.low} </span></div>
+                                <div style={{ width: colWidths.status }} className="px-2"><span className={`text-[9px] font-bold uppercase tracking-wider ${note.status === NoteStatus.TODO ? 'text-stone-400' : note.status === NoteStatus.IN_PROGRESS ? 'text-blue-500' : note.status === NoteStatus.PARTIAL ? 'text-orange-500' : note.status === NoteStatus.CANCELLED ? 'text-stone-300' : 'text-green-500'}`}> {note.status} </span></div>
+                                <div style={{ width: colWidths.reminder }} className="px-2 text-[10px] text-stone-400 font-mono">{note.isReminderOn && note.reminderTime ? ( <span className="text-blue-600 flex items-center gap-1"><Bell size={10} /> {formatDate(note.reminderTime)}</span> ) : '-'}</div>
+                                <div style={{ width: colWidths.actions }} className="px-2 flex justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                     {note.status === NoteStatus.TODO && (
-                                        <button onClick={() => updateStatus(note.id, NoteStatus.IN_PROGRESS)} className="p-1 rounded hover:bg-blue-100 text-blue-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.startAction}>
-                                            <PlayCircle size={14} /> <span className="hidden xl:inline">{t.table.startAction}</span>
-                                        </button>
-                                    )}
-                                    {note.status === NoteStatus.IN_PROGRESS && (
                                         <>
-                                            <button onClick={() => updateStatus(note.id, NoteStatus.PARTIAL)} className="p-1 rounded hover:bg-orange-100 text-orange-500 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.partialAction}>
-                                                <PieChart size={14} /> 
-                                            </button>
-                                            <button onClick={() => updateStatus(note.id, NoteStatus.DONE)} className="p-1 rounded hover:bg-green-100 text-green-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.finishAction}>
-                                                <CheckCircle size={14} />
-                                            </button>
+                                            <button onClick={() => updateStatus(note.id, NoteStatus.IN_PROGRESS)} className="p-1 rounded hover:bg-blue-50 text-blue-600" title={t.table.startAction}><PlayCircle size={14} /></button>
+                                            <button onClick={() => updateStatus(note.id, NoteStatus.IN_PROGRESS, 'start')} className="p-1 rounded hover:bg-blue-100 text-blue-800" title={t.table.startResetAction}><Clock size={14} /></button>
                                         </>
                                     )}
-                                    {note.status === NoteStatus.PARTIAL && (
-                                        <button onClick={() => updateStatus(note.id, NoteStatus.DONE)} className="p-1 rounded hover:bg-green-100 text-green-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.finishAction}>
-                                            <CheckCircle size={14} /> <span className="hidden xl:inline">{t.table.finishAction}</span>
-                                        </button>
+                                    {(note.status === NoteStatus.IN_PROGRESS || note.status === NoteStatus.PARTIAL) && (
+                                        <>
+                                            {note.status === NoteStatus.IN_PROGRESS && <button onClick={() => updateStatus(note.id, NoteStatus.PARTIAL)} className="p-1 rounded hover:bg-orange-50 text-orange-500" title={t.table.partialAction}><PieChart size={14} /></button>}
+                                            <button onClick={() => updateStatus(note.id, NoteStatus.DONE)} className="p-1 rounded hover:bg-green-50 text-green-600" title={t.table.finishAction}><CheckCircle size={14} /></button>
+                                            <button onClick={() => updateStatus(note.id, NoteStatus.DONE, 'end')} className="p-1 rounded hover:bg-green-100 text-green-800" title={t.table.finishResetAction}><Clock size={14} /></button>
+                                        </>
                                     )}
-                                    {note.status === NoteStatus.DONE && (
-                                        <button onClick={() => updateStatus(note.id, NoteStatus.TODO)} className="p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-600 font-bold text-[10px] uppercase flex items-center gap-1" title={t.table.reopenAction}>
-                                            <RotateCcw size={14} />
-                                        </button>
+                                    {(note.status !== NoteStatus.CANCELLED && note.status !== NoteStatus.DONE) && (
+                                        <button onClick={() => updateStatus(note.id, NoteStatus.CANCELLED)} className="p-1 rounded hover:bg-stone-100 text-stone-400" title={t.table.cancelAction}><Ban size={14} /></button>
+                                    )}
+                                    {(note.status === NoteStatus.DONE || note.status === NoteStatus.CANCELLED) && (
+                                        <button onClick={() => updateStatus(note.id, NoteStatus.TODO)} className="p-1 rounded hover:bg-stone-50 text-stone-600" title={t.table.reopenAction}><RotateCcw size={14} /></button>
                                     )}
                                     <div className="w-px h-4 bg-stone-200 mx-1"></div>
-                                    <button onClick={() => onPinNote(note.id)} className={`p-1 rounded hover:bg-black/10 ${note.isPinned ? 'text-indigo-500' : 'text-stone-400'}`} title={t.note.unpin}><Pin size={14} /></button>
-                                    <button onClick={() => requestDeleteNote(note.id)} className="p-1 rounded hover:bg-red-100 text-stone-400 hover:text-red-500" title={t.note.delete}><Trash2 size={14} /></button>
+                                    <button onClick={() => onPinNote(note.id)} className={`p-1 rounded hover:bg-black/10 ${note.isPinned ? 'text-indigo-500' : 'text-stone-300'}`} title={t.note.unpin}><StickyNoteIcon size={14} /></button>
+                                    <button onClick={() => requestDeleteNote(note.id)} className="p-1 rounded hover:bg-red-50 text-stone-300 hover:text-red-500" title={t.note.delete}><Trash2 size={14} /></button>
                                 </div>
                             </div>
                         );
@@ -1429,34 +1147,20 @@ const Notebook: React.FC<NotebookProps> = ({
          </div>
       </div>
 
-      {/* --- Settings Modal --- */}
+      {/* Confirmation Modals & Popups (Keep logic same) */}
       {showSettingsModal && (
           <div className="fixed inset-0 z-[1000] bg-black/30 backdrop-blur-[2px] flex items-center justify-center pointer-events-auto" onClick={() => setShowSettingsModal(false)}>
-              <div 
-                className="bg-white rounded-2xl shadow-2xl w-[600px] max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" 
-                onClick={e => e.stopPropagation()}
-              >
-                  {/* ... Header ... */}
+              <div className="bg-white rounded-2xl shadow-2xl w-[600px] max-h-[80vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                   <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50">
-                      <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2">
-                          <Settings2 className="text-blue-600" />
-                          {t.settingsModal.title}
-                      </h2>
-                      <button onClick={() => setShowSettingsModal(false)} className="p-1 rounded-full hover:bg-stone-200 text-stone-400 hover:text-stone-600 transition-colors">
-                          <X size={20} />
-                      </button>
+                      <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2"><Settings2 className="text-blue-600" /> {t.settingsModal.title} </h2>
+                      <button onClick={() => setShowSettingsModal(false)} className="p-1 rounded-full hover:bg-stone-200 text-stone-400 hover:text-stone-600 transition-colors"><X size={20} /></button>
                   </div>
-
                   <div className="flex border-b border-stone-100 overflow-x-auto no-scrollbar">
-                      <button onClick={() => setSettingsTab('general')} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'general' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.general}</button>
-                      <button onClick={() => setSettingsTab('bookshelf')} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'bookshelf' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.bookshelf}</button>
-                      <button onClick={() => setSettingsTab('notebook')} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'notebook' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.notebook}</button>
-                      <button onClick={() => setSettingsTab('presets')} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === 'presets' ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal.presets}</button>
+                      {['general', 'bookshelf', 'notebook', 'presets'].map(tab => (
+                          <button key={tab} onClick={() => setSettingsTab(tab as any)} className={`flex-1 min-w-[80px] py-3 text-sm font-bold border-b-2 transition-colors ${settingsTab === tab ? 'border-blue-500 text-blue-600 bg-blue-50/50' : 'border-transparent text-stone-500 hover:bg-stone-50'}`}>{t.settingsModal[tab as keyof typeof t.settingsModal] || tab}</button>
+                      ))}
                   </div>
-
-                  {/* Content */}
                   <div className="p-6 overflow-y-auto min-h-[300px]">
-                      {/* General Tab */}
                       {settingsTab === 'general' && (
                           <div className="space-y-6">
                               <div>
@@ -1466,134 +1170,25 @@ const Notebook: React.FC<NotebookProps> = ({
                                       <button onClick={() => setLanguage('zh')} className={`px-4 py-2 rounded-lg border text-sm font-bold ${language === 'zh' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'}`}>中文</button>
                                   </div>
                               </div>
-
-                              {/* --- Auto Save Settings --- */}
                               <div>
                                   <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.autoSave}</label>
                                   <div className="flex items-center gap-2 bg-stone-50 p-3 rounded-lg border border-stone-200">
-                                      <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                                          <Save size={18} />
-                                      </div>
-                                      <select 
-                                          value={autoSaveInterval} 
-                                          onChange={(e) => onSetAutoSaveInterval(parseInt(e.target.value))}
-                                          className="p-2 rounded border bg-white text-stone-700 text-sm font-bold outline-none focus:border-blue-500 cursor-pointer"
-                                      >
+                                      <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Save size={18} /></div>
+                                      <select value={autoSaveInterval} onChange={(e) => onSetAutoSaveInterval(parseInt(e.target.value))} className="p-2 rounded border bg-white text-stone-700 text-sm font-bold outline-none focus:border-blue-500 cursor-pointer">
                                           <option value={0}>{t.settingsModal.off}</option>
-                                          <option value={5}>5 {t.settingsModal.minutes}</option>
-                                          <option value={15}>15 {t.settingsModal.minutes}</option>
-                                          <option value={30}>30 {t.settingsModal.minutes}</option>
-                                          <option value={60}>60 {t.settingsModal.minutes} (1h)</option>
-                                          <option value={120}>120 {t.settingsModal.minutes} (2h)</option>
+                                          {[5, 15, 30, 60, 120].map(m => <option key={m} value={m}>{m} {t.settingsModal.minutes}</option>)}
                                       </select>
-                                      <div className="text-xs text-stone-500 ml-2 border-l pl-2 border-stone-300">
-                                          {t.settingsModal.autoSaveDesc}
-                                      </div>
+                                      <div className="text-xs text-stone-500 ml-2 border-l pl-2 border-stone-300">{t.settingsModal.autoSaveDesc}</div>
                                   </div>
                               </div>
-
                               <div className="p-4 bg-stone-50 rounded-xl text-stone-500 text-sm leading-relaxed border border-stone-100 mt-4">
                                   <p>{t.settingsModal.generatedBy}</p>
-                                  <p className="mt-2 text-xs opacity-50">Version 4.8.0</p>
+                                  <p className="mt-2 text-xs opacity-50">Version 4.9.0</p>
                               </div>
                           </div>
                       )}
-
-                      {/* Bookshelf Tab - Restored */}
-                      {settingsTab === 'bookshelf' && (
-                          <div className="space-y-6">
-                              <div>
-                                  <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.bgType}</label>
-                                  <div className="grid grid-cols-3 gap-2">
-                                      <button onClick={() => setBookshelfTheme({...bookshelfTheme, type: 'bookshelf'})} className={`p-3 rounded-lg border text-sm font-bold ${bookshelfTheme.type === 'bookshelf' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'hover:bg-stone-50 text-stone-600'}`}>{t.settingsModal.bg3d}</button>
-                                      <button onClick={() => setBookshelfTheme({...bookshelfTheme, type: 'color'})} className={`p-3 rounded-lg border text-sm font-bold ${bookshelfTheme.type === 'color' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'hover:bg-stone-50 text-stone-600'}`}>{t.settingsModal.bgSolid}</button>
-                                      <button onClick={() => setBookshelfTheme({...bookshelfTheme, type: 'image'})} className={`p-3 rounded-lg border text-sm font-bold ${bookshelfTheme.type === 'image' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'hover:bg-stone-50 text-stone-600'}`}>{t.settingsModal.bgImg}</button>
-                                  </div>
-                              </div>
-
-                              {bookshelfTheme.type === 'bookshelf' && (
-                                   <div className="space-y-4">
-                                       <div className="p-4 bg-blue-50 text-blue-700 text-sm rounded-lg flex items-start gap-3">
-                                           <Library className="shrink-0 mt-0.5" size={18} />
-                                           <div>
-                                               <p className="font-bold">{t.settingsModal.interactiveMode}</p>
-                                               <p className="opacity-80 text-xs mt-1">{t.settingsModal.interactiveModeDesc}</p>
-                                           </div>
-                                       </div>
-
-                                       <div>
-                                           <div className="flex justify-between items-end mb-2">
-                                               <label className="text-xs font-bold text-stone-400 uppercase tracking-wider">{t.settingsModal.manageBooks}</label>
-                                               <button onClick={handleAddNewBook} className="text-xs font-bold text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors flex items-center gap-1">
-                                                   <Plus size={12}/> {t.settingsModal.addBook}
-                                               </button>
-                                           </div>
-                                           <div className="border rounded-xl divide-y divide-stone-100 max-h-60 overflow-y-auto">
-                                               {books.sort((a,b) => a.position - b.position).map(book => (
-                                                   <div key={book.id} className="p-2 flex gap-2 items-center hover:bg-stone-50 group">
-                                                       <div className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white shrink-0" style={{backgroundColor: book.color}}>
-                                                           {book.position}
-                                                       </div>
-                                                       <input 
-                                                          className="flex-1 min-w-0 text-sm border-b border-transparent focus:border-blue-300 outline-none bg-transparent"
-                                                          value={book.title}
-                                                          onChange={(e) => onUpdateBooks(books.map(b => b.id === book.id ? { ...b, title: e.target.value } : b))}
-                                                          placeholder={t.settingsModal.bookTitle}
-                                                       />
-                                                       <input 
-                                                          className="flex-[2] min-w-0 text-xs text-stone-500 border-b border-transparent focus:border-blue-300 outline-none bg-transparent font-mono"
-                                                          value={book.url}
-                                                          onChange={(e) => onUpdateBooks(books.map(b => b.id === book.id ? { ...b, url: e.target.value } : b))}
-                                                          placeholder={t.settingsModal.bookUrl}
-                                                       />
-                                                       <button 
-                                                           onClick={() => onUpdateBooks(books.filter(b => b.id !== book.id))}
-                                                           className="p-1 text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                       >
-                                                           <Trash2 size={14} />
-                                                       </button>
-                                                   </div>
-                                               ))}
-                                               {books.length === 0 && <div className="p-4 text-center text-sm text-stone-400 italic">No books in shelf. Click empty slots to add.</div>}
-                                           </div>
-                                       </div>
-                                   </div>
-                              )}
-
-                              {(bookshelfTheme.type === 'color' || bookshelfTheme.type === 'image') && (
-                                  <>
-                                      {bookshelfTheme.type === 'color' && (
-                                            <div>
-                                                <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.bgColor}</label>
-                                                <div className="flex gap-2 items-center">
-                                                    <input type="color" value={bookshelfTheme.value} onChange={e => setBookshelfTheme({...bookshelfTheme, value: e.target.value})} className="h-10 w-20 cursor-pointer rounded border border-stone-200 p-0" />
-                                                    <div className="text-sm font-mono text-stone-500">{bookshelfTheme.value}</div>
-                                                </div>
-                                            </div>
-                                      )}
-                                      <div>
-                                          <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.opacity} ({(bookshelfTheme.opacity * 100).toFixed(0)}%)</label>
-                                          <input 
-                                              type="range" 
-                                              min="0" max="1" step="0.05" 
-                                              value={bookshelfTheme.opacity} 
-                                              onChange={e => setBookshelfTheme({...bookshelfTheme, opacity: parseFloat(e.target.value)})} 
-                                              className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer"
-                                          />
-                                      </div>
-                                  </>
-                              )}
-
-                              <div className="pt-4 border-t">
-                                  <button onClick={requestResetBookshelf} className="text-red-500 text-sm font-bold hover:underline flex items-center gap-1"><RefreshCw size={14} /> {t.themeMenu.reset}</button>
-                              </div>
-                          </div>
-                      )}
-
-                      {/* Notebook Tab - With Restored Settings + New AI Section */}
                       {settingsTab === 'notebook' && (
                           <div className="space-y-6">
-                              {/* --- Appearance --- */}
                               <div>
                                   <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.bgType}</label>
                                   <div className="flex gap-2 items-center">
@@ -1601,315 +1196,89 @@ const Notebook: React.FC<NotebookProps> = ({
                                       <button onClick={() => setNotebookTheme({...notebookTheme, type: 'image'})} className={`px-4 py-2 rounded-lg border text-sm font-bold ${notebookTheme.type === 'image' ? 'bg-blue-600 text-white border-blue-600' : 'hover:bg-stone-50 text-stone-600'}`}>{t.settingsModal.bgImage}</button>
                                   </div>
                               </div>
-                              
                               {notebookTheme.type === 'image' && (
                                   <div>
                                       <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">Upload Image</label>
                                       <div className="flex gap-2 items-center">
-                                          <label className="cursor-pointer px-4 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-sm font-bold text-stone-600 flex items-center gap-2">
-                                              <ImageIcon size={16} /> Choose File
-                                              <input type="file" accept="image/*" className="hidden" ref={notebookBgImageInputRef} onChange={handleNotebookBgImageUpload} />
-                                          </label>
-                                          {notebookTheme.value && <div className="text-xs text-stone-400 truncate max-w-[200px]">Image Set</div>}
+                                          <label className="cursor-pointer px-4 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-sm font-bold text-stone-600 flex items-center gap-2"> <ImageIcon size={16} /> Choose File <input type="file" accept="image/*" className="hidden" ref={notebookBgImageInputRef} onChange={handleNotebookBgImageUpload} /> </label>
                                       </div>
                                   </div>
                               )}
-
                               <div>
                                   <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.texture}</label>
                                   <div className="grid grid-cols-4 gap-2">
                                       {['solid', 'lined', 'grid', 'dots'].map(tex => (
-                                          <button 
-                                              key={tex}
-                                              onClick={() => setNotebookTheme({...notebookTheme, texture: tex as NoteTexture})}
-                                              className={`p-2 border rounded text-xs capitalize ${notebookTheme.texture === tex ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold' : 'text-stone-600 hover:bg-stone-50'}`}
-                                          >
-                                              {t.textures[tex as keyof typeof t.textures]}
-                                          </button>
+                                          <button key={tex} onClick={() => setNotebookTheme({...notebookTheme, texture: tex as NoteTexture})} className={`p-2 border rounded text-xs capitalize ${notebookTheme.texture === tex ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold' : 'text-stone-600 hover:bg-stone-50'}`}> {t.textures[tex as keyof typeof t.textures]} </button>
                                       ))}
                                   </div>
                               </div>
-
                               <div>
                                   <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.opacity} ({(notebookTheme.opacity * 100).toFixed(0)}%)</label>
-                                  <input 
-                                      type="range" 
-                                      min="0" max="1" step="0.05" 
-                                      value={notebookTheme.opacity} 
-                                      onChange={e => setNotebookTheme({...notebookTheme, opacity: parseFloat(e.target.value)})} 
-                                      className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer"
-                                  />
+                                  <input type="range" min="0" max="1" step="0.05" value={notebookTheme.opacity} onChange={e => setNotebookTheme({...notebookTheme, opacity: parseFloat(e.target.value)})} className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer" />
                               </div>
-
                               <div className="border-t border-stone-100 my-4"></div>
-
-                              {/* --- AI Section (Moved Here) --- */}
                               <div className="space-y-4">
-                                  <div className="flex items-center gap-2 mb-2">
-                                      <Cpu size={16} className="text-blue-500"/>
-                                      <h3 className="text-sm font-bold text-stone-700 uppercase tracking-wider">{t.settingsModal.ai}</h3>
-                                  </div>
-                                  
+                                  <div className="flex items-center gap-2 mb-2"><Cpu size={16} className="text-blue-500"/><h3 className="text-sm font-bold text-stone-700 uppercase tracking-wider">{t.settingsModal.ai}</h3></div>
                                   <div>
                                       <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.llmProvider}</label>
                                       <div className="grid grid-cols-4 gap-2">
-                                          {['gemini', 'openai', 'deepseek', 'custom'].map(p => (
-                                              <button 
-                                                key={p}
-                                                onClick={() => onUpdateLlmConfig({ ...llmConfig, provider: p as LLMProvider })}
-                                                className={`p-2 rounded-lg border text-xs font-bold capitalize truncate ${llmConfig.provider === p ? 'bg-blue-50 border-blue-500 text-blue-700' : 'hover:bg-stone-50 text-stone-600'}`}
-                                              >
-                                                  {p}
-                                              </button>
-                                          ))}
+                                          {['gemini', 'openai', 'deepseek', 'custom'].map(p => ( <button key={p} onClick={() => onUpdateLlmConfig({ ...llmConfig, provider: p as LLMProvider })} className={`p-2 rounded-lg border text-xs font-bold capitalize truncate ${llmConfig.provider === p ? 'bg-blue-50 border-blue-500 text-blue-700' : 'hover:bg-stone-50 text-stone-600'}`}> {p} </button> ))}
                                       </div>
                                   </div>
-
-                                  {/* Custom Base URL Field */}
-                                  {llmConfig.provider === 'custom' && (
-                                      <div className="animate-in fade-in slide-in-from-top-2">
-                                          <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">Base URL</label>
-                                          <input 
-                                              type="text" 
-                                              className="w-full p-2 border rounded-lg text-sm bg-stone-50 font-mono"
-                                              placeholder="https://api.example.com/v1"
-                                              value={llmConfig.baseUrl || ''}
-                                              onChange={e => onUpdateLlmConfig({ ...llmConfig, baseUrl: e.target.value })}
-                                          />
-                                      </div>
-                                  )}
-
-                                  <div>
-                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.apiKey}</label>
-                                      <input 
-                                          type="password" 
-                                          className="w-full p-2 border rounded-lg text-sm bg-stone-50 font-mono"
-                                          placeholder="sk-..."
-                                          value={llmConfig.apiKey}
-                                          onChange={e => onUpdateLlmConfig({ ...llmConfig, apiKey: e.target.value })}
-                                      />
-                                      <div className="text-[10px] text-stone-400 mt-1">
-                                          {llmConfig.provider === 'gemini' ? 'Optional (uses env var if empty)' : 'Required'}
-                                      </div>
-                                  </div>
-
-                                  <div>
-                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.modelName}</label>
-                                      <input 
-                                          type="text" 
-                                          className="w-full p-2 border rounded-lg text-sm bg-stone-50 font-mono"
-                                          value={llmConfig.model}
-                                          onChange={e => onUpdateLlmConfig({ ...llmConfig, model: e.target.value })}
-                                      />
-                                  </div>
-
-                                  <div>
-                                      <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.customPrompt}</label>
-                                      <textarea 
-                                          className="w-full h-24 p-2 border rounded-lg text-xs bg-stone-50 font-mono resize-none leading-relaxed"
-                                          value={llmConfig.customPrompt}
-                                          onChange={e => onUpdateLlmConfig({ ...llmConfig, customPrompt: e.target.value })}
-                                      />
-                                  </div>
+                                  <div><label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.apiKey}</label><input type="password" className="w-full p-2 border rounded-lg text-sm bg-stone-50 font-mono" placeholder="sk-..." value={llmConfig.apiKey} onChange={e => onUpdateLlmConfig({ ...llmConfig, apiKey: e.target.value })} /></div>
                               </div>
-
-                              <div className="pt-4 border-t">
-                                  <button onClick={requestResetNotebook} className="text-red-500 text-sm font-bold hover:underline flex items-center gap-1"><RefreshCw size={14} /> {t.themeMenu.reset}</button>
-                              </div>
+                              <div className="pt-4 border-t"><button onClick={requestResetNotebook} className="text-red-500 text-sm font-bold hover:underline flex items-center gap-1"><RefreshCw size={14} /> {t.themeMenu.reset}</button></div>
                           </div>
                       )}
-
                       {settingsTab === 'presets' && (
                           <div className="flex gap-6 h-[400px]">
-                              {/* Left: Editor */}
                               <div className="w-[240px] flex flex-col gap-4">
-                                  <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 flex-1 overflow-y-auto">
-                                      <NoteStyleControls 
-                                          theme={draftPreset.theme}
-                                          styleVariant={draftPreset.styleVariant}
-                                          textureVariant={draftPreset.textureVariant}
-                                          decorationPosition={draftPreset.decorationPosition}
-                                          opacity={draftPreset.theme.opacity}
-                                          language={language}
-                                          onUpdate={(updates) => {
-                                              setDraftPreset(prev => ({
-                                                  ...prev,
-                                                  ...updates,
-                                                  theme: { ...prev.theme, ...updates.theme }
-                                              }));
-                                          }}
-                                      />
-                                  </div>
-                                  <div className="flex gap-2">
-                                      <input 
-                                          className="flex-1 border rounded px-2 py-1.5 text-sm"
-                                          placeholder="Style Name"
-                                          value={newPresetName}
-                                          onChange={e => setNewPresetName(e.target.value)}
-                                      />
-                                      <button onClick={handleCreatePreset} disabled={!newPresetName} className="bg-stone-800 text-white px-3 rounded text-sm font-bold disabled:opacity-50">{t.settingsModal.newPreset.split(' ')[0]}</button>
-                                  </div>
+                                  <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 flex-1 overflow-y-auto"> <NoteStyleControls theme={draftPreset.theme} styleVariant={draftPreset.styleVariant} textureVariant={draftPreset.textureVariant} decorationPosition={draftPreset.decorationPosition} opacity={draftPreset.theme.opacity} language={language} onUpdate={(updates) => { setDraftPreset(prev => ({ ...prev, ...updates, theme: { ...prev.theme, ...updates.theme } })); }} /> </div>
+                                  <div className="flex gap-2"> <input className="flex-1 border rounded px-2 py-1.5 text-sm" placeholder="Style Name" value={newPresetName} onChange={e => setNewPresetName(e.target.value)} /> <button onClick={handleCreatePreset} disabled={!newPresetName} className="bg-stone-800 text-white px-3 rounded text-sm font-bold disabled:opacity-50">Save</button> </div>
                               </div>
-
-                              {/* Right: List & Preview */}
-                              <div className="flex-1 flex flex-col gap-4">
-                                  <div className="h-[280px] bg-stone-100 rounded-xl border-2 border-dashed border-stone-200 flex items-center justify-center overflow-hidden relative">
-                                      <div className="absolute top-2 left-2 text-xs font-bold text-stone-400 uppercase">{t.note.preview}</div>
-                                      {renderPreviewNote()}
-                                  </div>
-                                  
-                                  <div className="flex-1 overflow-y-auto pr-1">
-                                      <div className="text-xs font-bold text-stone-400 uppercase mb-2">{t.settingsModal.presets}</div>
-                                      {presets.length === 0 && <div className="text-sm text-stone-400 italic">No styles saved yet.</div>}
-                                      <div className="grid grid-cols-1 gap-2">
-                                          {presets.map(preset => (
-                                              <div key={preset.id} className={`flex items-center justify-between p-2 rounded border transition-colors group ${preset.isDefault ? 'bg-yellow-50 border-yellow-200' : 'hover:bg-stone-50 border-stone-200'}`}>
-                                                  <button onClick={() => loadPresetIntoDraft(preset)} className="text-sm font-bold text-stone-700 truncate text-left flex-1 flex items-center gap-2">
-                                                      {preset.name}
-                                                      {preset.isDefault && <span className="text-[10px] bg-yellow-400 text-yellow-900 px-1.5 py-0.5 rounded-full">Default</span>}
-                                                  </button>
-                                                  
-                                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                      <button 
-                                                        onClick={() => handleSetDefaultPreset(preset.id)} 
-                                                        className={`p-1.5 rounded transition-colors ${preset.isDefault ? 'text-yellow-500' : 'text-stone-300 hover:text-yellow-500 hover:bg-yellow-50'}`}
-                                                        title="Set as Default"
-                                                      >
-                                                          <Star size={14} fill={preset.isDefault ? "currentColor" : "none"} />
-                                                      </button>
-                                                      <button 
-                                                        onClick={() => handleDeletePreset(preset.id)} 
-                                                        className="p-1.5 rounded text-stone-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                                                        title="Delete"
-                                                      >
-                                                          <Trash2 size={14}/>
-                                                      </button>
-                                                  </div>
-                                              </div>
-                                          ))}
-                                      </div>
-                                  </div>
-                              </div>
+                              <div className="flex-1 overflow-y-auto"><div className="text-xs font-bold text-stone-400 uppercase mb-2">{t.settingsModal.presets}</div>{presets.map(preset => ( <div key={preset.id} className={`flex items-center justify-between p-2 rounded border mb-2 transition-colors group ${preset.isDefault ? 'bg-yellow-50 border-yellow-200' : 'hover:bg-stone-50 border-stone-200'}`}> <button onClick={() => loadPresetIntoDraft(preset)} className="text-sm font-bold text-stone-700 truncate text-left flex-1 flex items-center gap-2"> {preset.name} {preset.isDefault && <span className="text-[10px] bg-yellow-400 text-yellow-900 px-1.5 py-0.5 rounded-full">Default</span>} </button> <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"> <button onClick={() => handleSetDefaultPreset(preset.id)} className={`p-1.5 rounded transition-colors ${preset.isDefault ? 'text-yellow-500' : 'text-stone-300 hover:text-yellow-500'}`}> <Star size={14} fill={preset.isDefault ? "currentColor" : "none"} /> </button> <button onClick={() => handleDeletePreset(preset.id)} className="p-1.5 rounded text-stone-300 hover:text-red-500"> <Trash2 size={14}/> </button> </div> </div> ))} </div>
                           </div>
                       )}
-
                   </div>
               </div>
           </div>
       )}
-
-      {/* --- Export Records Modal --- */}
+      
+      {/* Help & Records Modal - Logic mostly same but Help content changed in i18n */}
       {showExportRecords && (
           <div className="fixed inset-0 z-[1100] bg-black/40 backdrop-blur-[2px] flex items-center justify-center pointer-events-auto" onClick={() => setShowExportRecords(false)}>
-              <div 
-                className="bg-white rounded-2xl shadow-2xl w-[600px] h-[500px] flex flex-col overflow-hidden animate-in zoom-in-95" 
-                onClick={e => e.stopPropagation()}
-              >
-                  <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50">
-                      <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2">
-                          <FileText className="text-blue-600" />
-                          {t.dataMenu.exportRecords}
-                      </h2>
-                      <button onClick={() => setShowExportRecords(false)} className="p-1 rounded-full hover:bg-stone-200 text-stone-400 hover:text-stone-600 transition-colors">
-                          <X size={20} />
-                      </button>
-                  </div>
-                  
+              <div className="bg-white rounded-2xl shadow-2xl w-[600px] h-[500px] flex flex-col overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                  <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50"><h2 className="text-lg font-bold text-stone-800 flex items-center gap-2"><FileText className="text-blue-600" /> {t.dataMenu.exportRecords} </h2><button onClick={() => setShowExportRecords(false)} className="p-1 rounded-full hover:bg-stone-200 text-stone-400 hover:text-stone-600 transition-colors"><X size={20} /></button></div>
                   <div className="p-6 flex flex-col h-full gap-4">
-                      {/* Controls */}
                       <div className="flex items-end gap-4 p-4 bg-stone-50 rounded-xl border border-stone-100">
-                          <div>
-                              <label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Work Start</label>
-                              <input type="time" value={workDayStart} onChange={e => setWorkDayStart(e.target.value)} className="p-2 rounded border border-stone-200 text-sm" />
-                          </div>
-                          <div>
-                              <label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Work End</label>
-                              <input type="time" value={workDayEnd} onChange={e => setWorkDayEnd(e.target.value)} className="p-2 rounded border border-stone-200 text-sm" />
-                          </div>
-                          <button 
-                            onClick={generateWeeklyReport}
-                            className="ml-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow font-bold text-sm hover:bg-blue-700 transition-colors"
-                          >
-                              Generate Report
-                          </button>
+                          <div><label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Work Start</label><input type="time" value={workDayStart} onChange={e => setWorkDayStart(e.target.value)} className="p-2 rounded border border-stone-200 text-sm" /></div>
+                          <div><label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Work End</label><input type="time" value={workDayEnd} onChange={e => setWorkDayEnd(e.target.value)} className="p-2 rounded border border-stone-200 text-sm" /></div>
+                          <button onClick={generateWeeklyReport} className="ml-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow font-bold text-sm hover:bg-blue-700 transition-colors">Generate Report</button>
                       </div>
-
-                      {/* Output */}
-                      <div className="flex-1 flex flex-col">
-                          <label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Export Result (Current Week)</label>
-                          <textarea 
-                              readOnly 
-                              className="w-full h-full p-4 border border-stone-200 rounded-xl bg-stone-50 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-100 text-stone-700"
-                              value={exportResult}
-                              placeholder="Click 'Generate Report' to calculate working hours for this week..."
-                          />
-                      </div>
+                      <div className="flex-1 flex flex-col"><label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Export Result (Current Week)</label><textarea readOnly className="w-full h-full p-4 border border-stone-200 rounded-xl bg-stone-50 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-100 text-stone-700" value={exportResult} placeholder="Click 'Generate Report'..." /></div>
                   </div>
               </div>
           </div>
       )}
 
-      {/* --- Confirmation Modal --- */}
       {modalConfig.isOpen && (
         <div className="fixed inset-0 z-[1100] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4 pointer-events-auto" onClick={() => setModalConfig({ ...modalConfig, isOpen: false })}>
-            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
-                
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
                 {modalConfig.isCustomContent ? (
                      <div className="flex flex-col h-[80vh] max-h-[600px]">
-                         <div className="p-4 border-b flex justify-between items-center bg-stone-50">
-                            <h3 className="font-bold text-lg flex items-center gap-2 text-stone-700"><HelpCircle size={20} className="text-blue-500"/> {modalConfig.title}</h3>
-                            <button onClick={() => setModalConfig({...modalConfig, isOpen: false})}><X size={20} className="text-stone-400 hover:text-stone-600"/></button>
-                         </div>
+                         <div className="p-4 border-b flex justify-between items-center bg-stone-50"><h3 className="font-bold text-lg flex items-center gap-2 text-stone-700"><HelpCircle size={20} className="text-blue-500"/> {modalConfig.title}</h3><button onClick={() => setModalConfig({...modalConfig, isOpen: false})}><X size={20} className="text-stone-400 hover:text-stone-600"/></button></div>
                          <div className="flex-1 overflow-y-auto p-0 flex">
-                              {/* Help Sidebar */}
-                              <div className="w-32 bg-stone-50 border-r border-stone-100 py-4 flex flex-col gap-1">
-                                  {['general', 'bookshelf', 'notebooks', 'notebook', 'note', 'settings', 'update'].map(section => (
-                                      <button 
-                                        key={section}
-                                        onClick={() => setHelpTab(section as any)}
-                                        className={`px-4 py-2 text-xs font-bold text-left transition-colors ${helpTab === section ? 'text-blue-600 bg-blue-50 border-r-2 border-blue-500' : 'text-stone-500 hover:text-stone-800'}`}
-                                      >
-                                          {t.help.sections[section as keyof typeof t.help.sections]?.title}
-                                      </button>
-                                  ))}
+                              <div className="w-40 bg-stone-50 border-r border-stone-100 py-4 flex flex-col gap-1">
+                                  {Object.keys(t.help.sections).map(section => ( <button key={section} onClick={() => setHelpTab(section as any)} className={`px-4 py-2 text-xs font-bold text-left transition-colors ${helpTab === section ? 'text-blue-600 bg-blue-50 border-r-2 border-blue-500' : 'text-stone-500 hover:text-stone-800'}`}>{t.help.sections[section as keyof typeof t.help.sections]?.title}</button> ))}
                               </div>
-                              {/* Help Content */}
-                              <div className="flex-1 p-6">
-                                  <h4 className="text-xl font-bold text-stone-800 mb-4">{t.help.sections[helpTab]?.title}</h4>
-                                  <ul className="space-y-3">
-                                      {t.help.sections[helpTab]?.items.map((item, idx) => (
-                                          <li key={idx} className="flex gap-3 text-sm text-stone-600 leading-relaxed">
-                                              <div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0"></div>
-                                              <span>{item}</span>
-                                          </li>
-                                      ))}
-                                  </ul>
-                              </div>
+                              <div className="flex-1 p-6"><h4 className="text-xl font-bold text-stone-800 mb-4">{t.help.sections[helpTab]?.title}</h4><ul className="space-y-3">{t.help.sections[helpTab]?.items.map((item, idx) => ( <li key={idx} className="flex gap-3 text-sm text-stone-600 leading-relaxed"><div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0"></div><span>{item}</span></li> ))}</ul></div>
                          </div>
                      </div>
                 ) : (
                     <div className="p-6">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className={`p-3 rounded-full ${modalConfig.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}>
-                                <AlertTriangle size={24} />
-                            </div>
-                            <h3 className="text-xl font-bold text-stone-800">{modalConfig.title}</h3>
-                        </div>
+                        <div className="flex items-center gap-3 mb-4"><div className={`p-3 rounded-full ${modalConfig.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}><AlertTriangle size={24} /></div><h3 className="text-xl font-bold text-stone-800">{modalConfig.title}</h3></div>
                         <p className="text-stone-600 mb-6 leading-relaxed">{modalConfig.message}</p>
-                        <div className="flex justify-end gap-3">
-                            <button 
-                                onClick={() => setModalConfig({ ...modalConfig, isOpen: false })}
-                                className="px-5 py-2.5 rounded-xl font-bold text-stone-500 hover:bg-stone-100 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                onClick={modalConfig.onConfirm}
-                                className={`px-5 py-2.5 rounded-xl font-bold text-white shadow-lg transition-transform active:scale-95 ${modalConfig.type === 'danger' ? 'bg-red-500 hover:bg-red-600' : 'bg-stone-800 hover:bg-stone-900'}`}
-                            >
-                                Confirm
-                            </button>
-                        </div>
+                        <div className="flex justify-end gap-3"><button onClick={() => setModalConfig({ ...modalConfig, isOpen: false })} className="px-5 py-2.5 rounded-xl font-bold text-stone-500 hover:bg-stone-100 transition-colors">Cancel</button><button onClick={modalConfig.onConfirm} className={`px-5 py-2.5 rounded-xl font-bold text-white shadow-lg transition-transform active:scale-95 ${modalConfig.type === 'danger' ? 'bg-red-500 hover:bg-red-600' : 'bg-stone-800 hover:bg-stone-900'}`}>Confirm</button></div>
                     </div>
                 )}
             </div>

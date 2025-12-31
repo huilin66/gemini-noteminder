@@ -1,5 +1,4 @@
 
-
 export type Language = 'en' | 'zh';
 
 export const translations = {
@@ -76,8 +75,7 @@ export const translations = {
       importCSV: "Import CSV (Current)",
       exportXLSX: "Export All (XLSX)",
       importXLSX: "Import All (XLSX)",
-      exportRecords: "Export Weekly Records",
-      downloadPython: "Download Desktop App (.py)"
+      exportRecords: "Export Weekly Records"
     },
     themeMenu: {
       desktopTheme: "Bookshelf Theme",
@@ -99,9 +97,13 @@ export const translations = {
       actions: "Actions",
       empty: "No events found.",
       startAction: "Start",
+      startResetAction: "Start (Reset Time)",
       finishAction: "Finish",
+      finishResetAction: "Finish (Reset Time)",
+      cancelAction: "Cancel",
       reopenAction: "Reopen",
-      partialAction: "Partial"
+      partialAction: "Partial",
+      pinTop: "Pin to top"
     },
     filter: {
       title: "Filter Events",
@@ -148,6 +150,7 @@ export const translations = {
       todo: "To Do",
       inProgress: "In Progress",
       partial: "Partial",
+      cancelled: "Cancelled",
       done: "Done"
     },
     importance: {
@@ -173,7 +176,7 @@ export const translations = {
           items: [
             "The Bookshelf is your main background. Click the 'Book' icon in the sidebar to hide windows and view the shelf.",
             "Interactive Books: Hover over books to see them pull out. Click to open their linked URL in a new tab.",
-            "Editing: Double-click any book to edit its Title, URL, and Color. You can also drag books to different slots (coming soon).",
+            "Editing: Double-click any book to edit its Title, URL, and Color.",
             "Adding Links: Click on empty grey slots to add a new book link.",
             "Configuration: You can also manage all book links in Settings -> Bookshelf."
           ]
@@ -184,20 +187,18 @@ export const translations = {
             "Notebooks act as folders for your tasks.",
             "Create: Click the '+' button at the bottom of the list to add a new notebook.",
             "Rename: Double-click a notebook name to rename it.",
-            "Delete: Hover over a notebook and click the 'X' icon. Note: This deletes all tasks inside it.",
+            "Delete: Hover over a notebook and click the 'X' icon.",
             "Reorder: Drag and drop notebooks to change their order."
           ]
         },
         notebook: {
           title: "Task List (Notebook View)",
           items: [
-             "This is the main spreadsheet-like view for managing tasks.",
-             "Editing: Double-click any cell to edit content, time, status, etc. The layout adjusts automatically for smaller screens.",
-             "AI Parsing: When adding a task, click the 'Sparkles' icon to let AI auto-detect time and location from your text.",
-             "Filters: Click the 'Filter' button in the toolbar to filter by Date Range, Status, or Priority.",
-             "Pinning: Click the Pin icon on a row to turn it into a sticky note. Use 'Pin View' (Layers icon) to pin all currently visible tasks.",
-             "Unpin All: Click the 'Pin Off' icon to remove all sticky notes from the desktop at once.",
-             "Quick Actions: Use the action buttons (Play, Partial, Check) in the rightmost column to quickly update status."
+             "Editing: Double-click any cell. Layout adjusts for smaller columns.",
+             "Pin to Top: Click the 'Push Pin' icon on a row to keep a task at the top of the list regardless of sorting.",
+             "Status Order: Sorting by status follows: To Do > In Progress > Partial > Cancelled > Done.",
+             "AI Parsing: Click the 'Sparkles' icon to let AI auto-detect time and location from your text.",
+             "Advanced Actions: Use 'Start & Reset' or 'Finish & Reset' to automatically set the current time when starting or finishing a task."
           ]
         },
         note: {
@@ -206,28 +207,25 @@ export const translations = {
              "Sticky notes are desktop representations of your tasks.",
              "Moving: Drag notes anywhere on the screen.",
              "Resizing: Drag the bottom-right corner to resize.",
-             "Styling: Click the 'Gear' icon on a note to change its color, texture, and decoration (tape, pin, clip).",
-             "Presets: You can save your favorite styles as 'Presets' in Settings and apply them quickly.",
-             "Status: The status icon (circle, play, pie chart, check) is shown on the note. You can update text directly on the note."
+             "Styling: Click the 'Gear' icon on a note to change its color, texture, and decoration.",
+             "Status: The status icon is shown on the note. You can update text directly on the note."
           ]
         },
         settings: {
           title: "Settings & AI",
           items: [
              "Theme: Customize the notebook opacity, background color, or set a custom image.",
-             "AI / LLM: Configure the AI provider. Supports Gemini (default), OpenAI, and DeepSeek. You can provide your own API Key and custom System Prompts.",
-             "Auto-Save: Configure automatic backup interval. The app will download an XLSX file periodically to save your data.",
+             "AI / LLM: Configure the AI provider (Gemini, OpenAI, DeepSeek).",
+             "Auto-Save: Configurable interval for automatic XLSX backups.",
              "Presets: Manage your sticky note style templates here."
           ]
         },
         update: {
           title: "Update History",
           items: [
-            "v4.8.0: Added 'Partial' status, Advanced Filtering, Unpin All button, and responsive edit layouts.",
-            "v4.6.0: Added Auto-Save configuration in Settings.",
-            "v4.5.0: Added LLM configuration, Split Date/Time pickers, Notebook action buttons, and weekly export updates.",
-            "v4.4.0: Added XLSX batch export, data folder settings.",
-            "v4.3.0: Enhanced settings, interactive bookshelf, and UI improvements."
+            "v4.9.0: Added 'Cancelled' status, Custom Status Sorting, 'Pin to Top' in list, and Time-Resetting action buttons.",
+            "v4.8.0: Added 'Partial' status, Advanced Filtering, Unpin All button.",
+            "v4.6.0: Added Auto-Save configuration in Settings."
           ]
         }
       }
@@ -306,8 +304,7 @@ export const translations = {
       importCSV: "导入 CSV (当前)",
       exportXLSX: "批量导出 (XLSX)",
       importXLSX: "批量导入 (XLSX)",
-      exportRecords: "导出周工时记录",
-      downloadPython: "下载桌面版 (.py)"
+      exportRecords: "导出周工时记录"
     },
     themeMenu: {
       desktopTheme: "书架主题",
@@ -329,9 +326,13 @@ export const translations = {
       actions: "操作",
       empty: "未找到事件。",
       startAction: "开始",
+      startResetAction: "开始并重置",
       finishAction: "完成",
+      finishResetAction: "完成并重置",
+      cancelAction: "取消执行",
       reopenAction: "重开",
-      partialAction: "部分完成"
+      partialAction: "部分完成",
+      pinTop: "置顶显示"
     },
     filter: {
       title: "筛选事件",
@@ -378,6 +379,7 @@ export const translations = {
       todo: "待执行",
       inProgress: "执行中",
       partial: "部分完成",
+      cancelled: "取消执行",
       done: "执行结束"
     },
     importance: {
@@ -417,12 +419,11 @@ export const translations = {
         notebook: {
           title: "当前列表 (Notebook)",
           items: [
-             "核心表格视图。双击单元格编辑，支持AI识别。",
-             "高级筛选：点击工具栏的“筛选”按钮，可按日期范围、状态（如“部分完成”）、优先级进行组合过滤。",
-             "一键固定/取消：点击“层叠”图标将当前视图所有任务固定到桌面；点击“取消固定”图标（Pin Off）可一键清除桌面便签。",
-             "今日待办：点击侧边栏“日历”图标，仅显示今日任务。",
-             "状态操作：使用操作列的按钮快速切换状态。新增“部分完成”（橙色饼图）状态。",
-             "时间编辑：在编辑模式下，如果列宽不足，日期和时间选择器会自动换行排列，方便操作。"
+             "置顶功能：点击行首的“图钉”图标，可将该事件永久固定在列表最上方。",
+             "状态排序：列表按照：待执行 > 执行中 > 部分完成 > 取消执行 > 执行结束 的顺序排列。",
+             "高级操作：在操作列中，点击“开始并重置”可直接将开始时间设为当前；点击“完成并重置”可直接将结束时间设为当前。",
+             "状态切换：新增“取消执行”（灰色斜杠图标）状态，方便记录因故中断的任务。",
+             "高级筛选：点击工具栏的“筛选”按钮，可按日期范围、状态、优先级进行组合过滤。"
           ]
         },
         note: {
@@ -430,9 +431,8 @@ export const translations = {
           items: [
              "视图模式：'桌面便签'显示所有固定项；'今日便签'仅显示今日固定项。",
              "样式设置：点击设置齿轮，面板会在便签侧边打开。",
-             "装饰位置：支持8个方位的装饰（左上、右下等）。",
              "预设系统：在设置中保存常用样式组合，一键应用。",
-             "状态显示：便签底部显示当前状态图标（待办、进行中、部分完成、已完成）。"
+             "状态显示：便签底部显示当前状态图标（待办、进行中、部分完成、已完成、已取消）。"
           ]
         },
         settings: {
@@ -440,19 +440,16 @@ export const translations = {
           items: [
              "主题：调整透明度、背景图。",
              "书架桌面：管理书本链接。",
-             "便签预设：创建和管理常用的便签外观模板。",
-             "自动保存 (Auto-Save)：在“常规”选项卡中设置自动保存间隔。开启后，系统会定时自动下载 XLSX 备份文件到本地下载文件夹。",
+             "自动保存 (Auto-Save)：开启后，系统会定时自动下载 XLSX 备份文件到本地下载文件夹。",
              "AI / 大模型：配置您偏好的模型服务商（Gemini, DeepSeek, OpenAI），以及自定义 Prompt。"
           ]
         },
         update: {
           title: "更新日志",
           items: [
+            "v4.9.0: 新增“取消执行”状态、自定义状态排序规则、列表置顶功能、以及“开始/完成并重置时间”操作按钮。",
             "v4.8.0: 新增“部分完成”状态、一键取消固定、高级筛选栏，优化了编辑时的布局。",
-            "v4.6.0: 增加自动保存 (Auto-Save) 设置。",
-            "v4.5.0: 增加 LLM 多模型配置，分离日期/时间选择器，笔记本增加状态操作按钮，周工时导出优化。",
-            "v4.4.0: 增加 XLSX 批量导入导出功能，完善帮助文档，优化界面细节。",
-            "v4.3.0: 增强设置功能，交互式书架，UI 改进。"
+            "v4.6.0: 增加自动保存 (Auto-Save) 设置。"
           ]
         }
       }

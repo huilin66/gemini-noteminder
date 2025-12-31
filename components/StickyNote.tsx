@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Note, NoteStatus, NoteImportance, NoteStyleVariant, NoteTexture, Language, NoteDecorationPosition, NotePreset } from '../types';
-import { X, MapPin, Clock, GripHorizontal, Bell, CheckCircle, PlayCircle, Settings, Pin, Paperclip, Flower, Leaf, PieChart } from 'lucide-react';
+import { X, MapPin, Clock, GripHorizontal, Bell, CheckCircle, PlayCircle, Settings, Pin, Paperclip, Flower, Leaf, PieChart, Ban } from 'lucide-react';
 import { translations } from '../utils/i18n';
 import NoteStyleControls from './NoteStyleControls';
 
@@ -118,6 +118,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, presets, onUpdate, onClos
     switch (s) {
       case NoteStatus.IN_PROGRESS: return <PlayCircle size={14} className="text-blue-600" />;
       case NoteStatus.PARTIAL: return <PieChart size={14} className="text-orange-500" />;
+      case NoteStatus.CANCELLED: return <Ban size={14} className="text-stone-400" />;
       case NoteStatus.DONE: return <CheckCircle size={14} className="text-green-600" />;
       default: return <div className="w-3 h-3 rounded-full border border-stone-400 bg-white"></div>;
     }
@@ -184,26 +185,14 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, presets, onUpdate, onClos
           }`}></div>
       )}
 
-      {/* --- Visual Variants (Decorations) --- */}
+      {/* Decorations */}
       <div className={`absolute z-20 pointer-events-none ${getPositionClass(decorationPosition)} drop-shadow-md`}>
-        {styleVariant === 'tape' && (
-            <div className="w-24 h-8 bg-white/40 backdrop-blur-sm rotate-1 shadow-sm border-x border-white/20"></div>
-        )}
-        {styleVariant === 'pin' && (
-            <Pin size={32} className="fill-red-500 text-red-700" />
-        )}
-        {styleVariant === 'clip' && (
-            <Paperclip size={40} className="text-stone-400 -rotate-12" strokeWidth={1.5} />
-        )}
-        {styleVariant === 'washi' && (
-            <div className="w-20 h-6 bg-pink-200/80 rotate-3 shadow-sm opacity-90 border-l border-r border-white/30" style={{backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,0.5) 5px, rgba(255,255,255,0.5) 10px)'}}></div>
-        )}
-        {styleVariant === 'flower' && (
-            <Flower size={36} className="text-pink-400 fill-pink-200" />
-        )}
-        {styleVariant === 'leaf' && (
-            <Leaf size={32} className="text-green-500 fill-green-100 rotate-45" />
-        )}
+        {styleVariant === 'tape' && <div className="w-24 h-8 bg-white/40 backdrop-blur-sm rotate-1 shadow-sm border-x border-white/20"></div>}
+        {styleVariant === 'pin' && <Pin size={32} className="fill-red-500 text-red-700" />}
+        {styleVariant === 'clip' && <Paperclip size={40} className="text-stone-400 -rotate-12" strokeWidth={1.5} />}
+        {styleVariant === 'washi' && <div className="w-20 h-6 bg-pink-200/80 rotate-3 shadow-sm opacity-90 border-l border-r border-white/30" style={{backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,0.5) 5px, rgba(255,255,255,0.5) 10px)'}}></div>}
+        {styleVariant === 'flower' && <Flower size={36} className="text-pink-400 fill-pink-200" />}
+        {styleVariant === 'leaf' && <Leaf size={32} className="text-green-500 fill-green-100 rotate-45" />}
       </div>
 
       {styleVariant === 'spiral' && (
@@ -214,132 +203,48 @@ const StickyNote: React.FC<StickyNoteProps> = ({ note, presets, onUpdate, onClos
         </div>
       )}
 
-      {/* --- Importance Cloud (Top Right) --- */}
+      {/* Importance Cloud */}
       {note.importance && (
-        <div 
-          className="absolute -top-3 -right-3 z-30 pointer-events-none"
-          title={`Importance: ${note.importance}`}
-        >
-          <div className={`relative flex items-center justify-center transform rotate-12 drop-shadow-md ${
-             note.importance === NoteImportance.HIGH ? 'text-red-500' : 
-             note.importance === NoteImportance.LOW ? 'text-green-500' : 'text-orange-400'
-          }`}>
-             <svg width="60" height="40" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                <path d="M17.5,19c-3.037,0-5.5-2.463-5.5-5.5c0-0.105,0.006-0.209,0.014-0.313C11.876,13.061,11.691,13,11.5,13c-1.933,0-3.5,1.567-3.5,3.5S9.567,20,11.5,20h6c2.485,0,4.5-2.015,4.5-4.5S19.985,11,17.5,11c-0.174,0-0.344,0.015-0.512,0.041C16.81,6.896,13.12,4,9,4C4.582,4,1,7.582,1,12c0,2.158,0.86,4.116,2.257,5.578" opacity="0.9" />
-             </svg>
+        <div className="absolute -top-3 -right-3 z-30 pointer-events-none" title={`Importance: ${note.importance}`}>
+          <div className={`relative flex items-center justify-center transform rotate-12 drop-shadow-md ${note.importance === NoteImportance.HIGH ? 'text-red-500' : note.importance === NoteImportance.LOW ? 'text-green-500' : 'text-orange-400'}`}>
+             <svg width="60" height="40" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M17.5,19c-3.037,0-5.5-2.463-5.5-5.5c0-0.105,0.006-0.209,0.014-0.313C11.876,13.061,11.691,13,11.5,13c-1.933,0-3.5,1.567-3.5,3.5S9.567,20,11.5,20h6c2.485,0,4.5-2.015,4.5-4.5S19.985,11,17.5,11c-0.174,0-0.344,0.015-0.512,0.041C16.81,6.896,13.12,4,9,4C4.582,4,1,7.582,1,12c0,2.158,0.86,4.116,2.257,5.578" opacity="0.9" /></svg>
              <span className="absolute text-[9px] font-bold text-white pt-1">{getImportanceLabel(note.importance)}</span>
           </div>
         </div>
       )}
 
-      {/* --- Header / Toolbar --- */}
-      <div 
-        className={`h-9 w-full flex items-center justify-between px-2 z-30 group relative ${styleVariant === 'spiral' ? 'pl-6' : ''}`}
-      >
-         <div className="flex-1 h-full flex items-center cursor-grab active:cursor-grabbing" onMouseDown={handleMouseDown}>
-            <GripHorizontal size={14} className="opacity-0 group-hover:opacity-40 transition-opacity ml-2" />
-         </div>
+      {/* Header */}
+      <div className={`h-9 w-full flex items-center justify-between px-2 z-30 group relative ${styleVariant === 'spiral' ? 'pl-6' : ''}`}>
+         <div className="flex-1 h-full flex items-center cursor-grab active:cursor-grabbing" onMouseDown={handleMouseDown}><GripHorizontal size={14} className="opacity-0 group-hover:opacity-40 transition-opacity ml-2" /></div>
          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button 
-                onClick={(e) => { e.stopPropagation(); onFocus(note.id); setShowSettings(!showSettings); }}
-                className={`p-1 rounded hover:bg-black/10 ${showSettings ? 'bg-black/10 text-blue-600' : ''}`}
-                title="Settings"
-            >
-                <Settings size={14} />
-            </button>
-            <button 
-                onClick={() => onClose(note.id)} 
-                className="hover:bg-red-100 hover:text-red-600 rounded p-1"
-                title={t.note.unpin}
-            >
-                <X size={14} />
-            </button>
+            <button onClick={(e) => { e.stopPropagation(); onFocus(note.id); setShowSettings(!showSettings); }} className={`p-1 rounded hover:bg-black/10 ${showSettings ? 'bg-black/10 text-blue-600' : ''}`}><Settings size={14} /></button>
+            <button onClick={() => onClose(note.id)} className="hover:bg-red-50 hover:text-red-600 rounded p-1"><X size={14} /></button>
          </div>
       </div>
 
-      {/* --- Settings View (Outside) --- */}
+      {/* Settings Modal (Simplified call) */}
       {showSettings && (
           <div className="absolute top-0 left-[105%] w-64 bg-white/95 backdrop-blur z-[100] rounded-xl shadow-2xl p-4 flex flex-col gap-3 animate-in fade-in slide-in-from-left-4 max-h-[400px] overflow-y-auto" onMouseDown={e => e.stopPropagation()}>
-              <div className="flex justify-between items-center mb-1 border-b pb-2">
-                 <div className="text-xs font-bold text-stone-400 uppercase tracking-wider">{t.note.settings}</div>
-                 <button onClick={() => setShowSettings(false)} className="text-xs font-bold text-blue-600 hover:underline">{t.note.done}</button>
-              </div>
-              
-              {/* Presets */}
+              <div className="flex justify-between items-center mb-1 border-b pb-2"><div className="text-xs font-bold text-stone-400 uppercase tracking-wider">{t.note.settings}</div><button onClick={() => setShowSettings(false)} className="text-xs font-bold text-blue-600 hover:underline">{t.note.done}</button></div>
               {presets.length > 0 && (
-                  <div>
-                      <div className="text-[10px] text-stone-400 font-bold uppercase mb-1">{t.note.presets}</div>
-                      <div className="grid grid-cols-2 gap-1">
-                          {presets.map(p => (
-                              <button key={p.id} onClick={() => applyPreset(p)} className="text-[10px] p-1 border rounded hover:bg-blue-50 text-left truncate">{p.name}</button>
-                          ))}
-                      </div>
-                      <div className="border-b my-2"></div>
-                  </div>
+                  <div><div className="text-[10px] text-stone-400 font-bold uppercase mb-1">{t.note.presets}</div><div className="grid grid-cols-2 gap-1">{presets.map(p => ( <button key={p.id} onClick={() => applyPreset(p)} className="text-[10px] p-1 border rounded hover:bg-blue-50 text-left truncate">{p.name}</button> ))}</div><div className="border-b my-2"></div></div>
               )}
-
-              {/* Reusable Style Controls */}
-              <NoteStyleControls 
-                theme={note.theme}
-                styleVariant={styleVariant}
-                textureVariant={textureVariant}
-                decorationPosition={decorationPosition}
-                opacity={opacity}
-                onUpdate={(updates) => onUpdate({ ...note, ...updates })}
-                language={language}
-              />
+              <NoteStyleControls theme={note.theme} styleVariant={styleVariant} textureVariant={textureVariant} decorationPosition={decorationPosition} opacity={opacity} onUpdate={(updates) => onUpdate({ ...note, ...updates })} language={language} />
           </div>
       )}
 
-      {/* --- Normal Content --- */}
-        <div className={`p-4 pt-1 flex-1 flex flex-col gap-2 relative z-10 font-handwriting ${styleVariant === 'spiral' ? 'pl-8' : ''}`}>
-            <textarea 
-            value={note.content}
-            onChange={(e) => onUpdate({...note, content: e.target.value})}
-            className={`w-full bg-transparent resize-none outline-none text-lg leading-snug font-medium placeholder-black/30 flex-1 ${note.status === NoteStatus.DONE ? 'line-through opacity-60' : ''}`}
-            placeholder={t.note.placeholder}
-            />
-            
-            <div className="mt-auto space-y-2 pt-3 border-t border-black/10 text-xs opacity-80">
-                {(note.startTime) && (
-                    <div className="flex items-start gap-2 font-mono text-[11px] leading-tight text-black/70">
-                        <Clock size={12} className="mt-0.5 shrink-0" />
-                        <span>{formatTimeRange(note.startTime, note.endTime)}</span>
-                    </div>
-                )}
-                {note.location && note.location !== '无' && (
-                    <div className="flex items-center gap-2 text-black/70 truncate">
-                        <MapPin size={12} className="shrink-0" />
-                        <span className="truncate">{note.location}</span>
-                    </div>
-                )}
-                {note.isReminderOn && note.reminderTime && (
-                    <div className="flex items-center gap-2 text-blue-700 font-medium">
-                        <Bell size={12} className="shrink-0 animate-pulse" />
-                        <span>{new Date(note.reminderTime).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
-                    </div>
-                )}
-
-                <div className="flex items-center justify-between pt-1">
-                    <div className="flex items-center gap-1.5" title={note.status}>
-                        {getStatusIcon(note.status)}
-                        <span className="text-[10px] uppercase tracking-wider font-bold opacity-70">{note.status}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-      {/* --- Resize Handle --- */}
-      {!showSettings && (
-          <div 
-             className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize z-30 flex items-end justify-end p-1 opacity-0 hover:opacity-100 transition-opacity text-black/30"
-             onMouseDown={handleResizeStart}
-          >
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
-                  <path d="M8 8H0L8 0V8Z" />
-              </svg>
+      {/* Main Content */}
+      <div className={`p-4 pt-1 flex-1 flex flex-col gap-2 relative z-10 font-handwriting ${styleVariant === 'spiral' ? 'pl-8' : ''}`}>
+          <textarea value={note.content} onChange={(e) => onUpdate({...note, content: e.target.value})} className={`w-full bg-transparent resize-none outline-none text-lg leading-snug font-medium placeholder-black/30 flex-1 ${note.status === NoteStatus.DONE || note.status === NoteStatus.CANCELLED ? 'line-through opacity-60' : ''}`} placeholder={t.note.placeholder} />
+          <div className="mt-auto space-y-2 pt-3 border-t border-black/10 text-xs opacity-80">
+              {note.startTime && ( <div className="flex items-start gap-2 font-mono text-[11px] leading-tight text-black/70"><Clock size={12} className="mt-0.5 shrink-0" /><span>{formatTimeRange(note.startTime, note.endTime)}</span></div> )}
+              {note.location && note.location !== '无' && ( <div className="flex items-center gap-2 text-black/70 truncate"><MapPin size={12} className="shrink-0" /><span className="truncate">{note.location}</span></div> )}
+              {note.isReminderOn && note.reminderTime && ( <div className="flex items-center gap-2 text-blue-700 font-medium"><Bell size={12} className="shrink-0 animate-pulse" /><span>{new Date(note.reminderTime).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'})}</span></div> )}
+              <div className="flex items-center justify-between pt-1"><div className="flex items-center gap-1.5" title={note.status}>{getStatusIcon(note.status)}<span className="text-[10px] uppercase tracking-wider font-bold opacity-70">{note.status}</span></div></div>
           </div>
-      )}
+      </div>
+
+      {!showSettings && ( <div className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize z-30 flex items-end justify-end p-1 opacity-0 hover:opacity-100 transition-opacity text-black/30" onMouseDown={handleResizeStart}><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M8 8H0L8 0V8Z" /></svg></div> )}
     </div>
   );
 };

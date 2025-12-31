@@ -1,10 +1,9 @@
 
-
-
 export enum NoteStatus {
   TODO = '待执行',
   IN_PROGRESS = '执行中',
   PARTIAL = '部分完成',
+  CANCELLED = '取消执行',
   DONE = '执行结束'
 }
 
@@ -72,6 +71,7 @@ export interface Note {
   dimensions?: { width: number; height: number };
   
   isPinned: boolean;
+  isTop?: boolean; // New: Pin to top in list
   position: { x: number; y: number };
   zIndex: number;
 }
