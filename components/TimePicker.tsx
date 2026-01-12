@@ -36,19 +36,6 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
     }
   }, [value]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dateContainerRef.current && !dateContainerRef.current.contains(event.target as Node)) {
-        setIsDateOpen(false);
-      }
-      if (timeContainerRef.current && !timeContainerRef.current.contains(event.target as Node)) {
-        setIsTimeOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const commit = (d: Date, h: number, m: number) => {
     const newDate = new Date(d);
     newDate.setHours(h);
@@ -61,7 +48,8 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
     onChange(localIso);
   };
 
-  const handleDayClick = (d: number) => {
+  const handleDayClick = (e: React.MouseEvent, d: number) => {
+    e.stopPropagation();
     const newDate = new Date(viewDate);
     newDate.setDate(d);
     setViewDate(newDate);
@@ -69,13 +57,15 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
     setIsDateOpen(false);
   };
 
-  const handleTimeSelect = (h: number, m: number) => {
+  const handleTimeSelect = (e: React.MouseEvent, h: number, m: number) => {
+    e.stopPropagation();
     setSelectedHour(h);
     setSelectedMinute(m);
     commit(viewDate, h, m);
   };
 
-  const changeMonth = (delta: number) => {
+  const changeMonth = (e: React.MouseEvent, delta: number) => {
+    e.stopPropagation();
     const newDate = new Date(viewDate);
     newDate.setMonth(newDate.getMonth() + delta);
     setViewDate(newDate);
@@ -111,11 +101,35 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
            safeDate.getFullYear() === viewDate.getFullYear();
   };
 
+  // 通用事件拦截器 - 防止点击面板时触发底层的行选中或列表滚动
+  const preventBubbling = (e: React.MouseEvent | React.WheelEvent) => {
+    e.stopPropagation();
+  };
+
+  const isOpen = isDateOpen || isTimeOpen;
+
   return (
     <div className={`flex flex-wrap gap-1 items-center ${className}`}>
+      {/* 遮罩层 (Backdrop): 当任意面板打开时，覆盖全屏并拦截所有事件 */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 z-[1000] bg-transparent cursor-default pointer-events-auto"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            setIsDateOpen(false);
+            setIsTimeOpen(false);
+          }}
+          onWheel={(e) => {
+            // 拦截背景滚动
+            e.stopPropagation();
+            e.preventDefault();
+          }}
+        />
+      )}
+
       {/* Date Picker */}
       <div 
-        className="relative flex-1 min-w-[90px]" 
+        className="relative flex-1 min-w-[90px] z-[1001]" 
         ref={dateContainerRef}
       >
         <button 
@@ -127,13 +141,19 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
         </button>
 
         {isDateOpen && (
-          <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-stone-200 z-[100] p-3 w-56 animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+          <div 
+            className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-2xl border border-stone-200 z-[1002] p-3 w-56 animate-in fade-in zoom-in-95 duration-200 flex flex-col gap-2 pointer-events-auto" 
+            onMouseDown={preventBubbling}
+            onMouseUp={preventBubbling}
+            onClick={preventBubbling}
+            onWheel={preventBubbling}
+          >
                <div className="flex justify-between items-center text-stone-700 font-bold px-1">
-                  <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-600"><ChevronLeft size={14}/></button>
+                  <button onClick={(e) => changeMonth(e, -1)} className="p-1 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-600"><ChevronLeft size={14}/></button>
                   <div className="text-xs">
                     {viewDate.toLocaleString('default', { month: 'short', year: 'numeric' })}
                   </div>
-                  <button onClick={() => changeMonth(1)} className="p-1 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-600"><ChevronRight size={14}/></button>
+                  <button onClick={(e) => changeMonth(e, 1)} className="p-1 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-600"><ChevronRight size={14}/></button>
                </div>
                <div className="grid grid-cols-7 gap-1 text-center">
                   {weekDays.map(d => (
@@ -143,7 +163,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
                     <div key={i} className="aspect-square flex items-center justify-center">
                       {d ? (
                         <button 
-                          onClick={() => handleDayClick(d)}
+                          onClick={(e) => handleDayClick(e, d)}
                           className={`w-6 h-6 flex items-center justify-center text-[10px] rounded-full transition-colors ${isSelectedDate(d) ? 'bg-blue-600 text-white font-bold' : 'text-stone-700 hover:bg-stone-100'}`}
                         >
                           {d}
@@ -160,7 +180,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
 
       {/* Time Picker */}
       <div 
-        className="relative w-20 min-w-[70px]" 
+        className="relative w-20 min-w-[70px] z-[1001]" 
         ref={timeContainerRef}
       >
         <button 
@@ -172,16 +192,21 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
         </button>
 
         {isTimeOpen && (
-          <div className="absolute top-full right-0 mt-1 bg-white rounded-xl shadow-xl border border-stone-200 z-[100] w-32 h-40 flex overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-               {/* 滚动容器添加 onWheel 阻止冒泡和 overscroll-contain 限制滚动溢出 */}
+          <div 
+            className="absolute top-full right-0 mt-1 bg-white rounded-xl shadow-2xl border border-stone-200 z-[1002] w-32 h-40 flex overflow-hidden animate-in fade-in zoom-in-95 duration-200 pointer-events-auto"
+            onMouseDown={preventBubbling}
+            onMouseUp={preventBubbling}
+            onClick={preventBubbling}
+            onWheel={preventBubbling}
+          >
                <div 
                 className="flex-1 overflow-y-auto no-scrollbar border-r border-stone-100 overscroll-contain"
-                onWheel={e => e.stopPropagation()}
+                onWheel={preventBubbling}
                >
                    {Array.from({ length: 24 }).map((_, i) => (
                        <button 
                          key={i} 
-                         onClick={() => handleTimeSelect(i, selectedMinute)}
+                         onClick={(e) => handleTimeSelect(e, i, selectedMinute)}
                          className={`w-full py-1 text-center text-xs hover:bg-stone-100 ${selectedHour === i ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}
                        >
                            {i.toString().padStart(2, '0')}
@@ -190,12 +215,12 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
                </div>
                <div 
                 className="flex-1 overflow-y-auto no-scrollbar overscroll-contain"
-                onWheel={e => e.stopPropagation()}
+                onWheel={preventBubbling}
                >
                    {Array.from({ length: 60 }).map((_, i) => (
                        <button 
                          key={i} 
-                         onClick={() => handleTimeSelect(selectedHour, i)}
+                         onClick={(e) => handleTimeSelect(e, selectedHour, i)}
                          className={`w-full py-1 text-center text-xs hover:bg-stone-100 ${selectedMinute === i ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}
                        >
                            {i.toString().padStart(2, '0')}
