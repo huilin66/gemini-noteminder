@@ -173,7 +173,11 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
 
         {isTimeOpen && (
           <div className="absolute top-full right-0 mt-1 bg-white rounded-xl shadow-xl border border-stone-200 z-[100] w-32 h-40 flex overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-               <div className="flex-1 overflow-y-auto no-scrollbar border-r border-stone-100">
+               {/* 滚动容器添加 onWheel 阻止冒泡和 overscroll-contain 限制滚动溢出 */}
+               <div 
+                className="flex-1 overflow-y-auto no-scrollbar border-r border-stone-100 overscroll-contain"
+                onWheel={e => e.stopPropagation()}
+               >
                    {Array.from({ length: 24 }).map((_, i) => (
                        <button 
                          key={i} 
@@ -184,11 +188,10 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
                        </button>
                    ))}
                </div>
-               <div className="flex-1 overflow-y-auto no-scrollbar">
-                   {Array.from({ length: 12 }).map((_, i) => { // 5-minute intervals for easier picking + single minute adjustments if typed manually? 
-                       // Let's stick to simple list 0-59 for full precision as requested "previous design"
-                       return null;
-                   })}
+               <div 
+                className="flex-1 overflow-y-auto no-scrollbar overscroll-contain"
+                onWheel={e => e.stopPropagation()}
+               >
                    {Array.from({ length: 60 }).map((_, i) => (
                        <button 
                          key={i} 
