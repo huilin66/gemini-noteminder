@@ -45,7 +45,6 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
   useEffect(() => {
     if (!isOpen) return;
     const handleGlobalClick = (e: MouseEvent) => {
-      // 如果点击的不是传送门里的内容，也不是触发按钮，则关闭
       const target = e.target as HTMLElement;
       if (!target.closest('.time-picker-portal') && !triggerRef.current?.contains(target)) {
         setIsDateOpen(false);
@@ -89,7 +88,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
     if (!isDateOpen) return null;
     return createPortal(
       <div 
-        className="time-picker-portal fixed z-[999999] bg-white rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.2)] border border-stone-200 p-3 w-56 animate-in fade-in zoom-in-95 duration-150 select-none"
+        className="time-picker-portal fixed z-[999999] bg-white rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.25)] border border-stone-200 p-3 w-56 select-none"
         style={{ 
           top: coords.showUpward ? 'auto' : coords.top, 
           bottom: coords.showUpward ? (window.innerHeight - coords.top) : 'auto',
@@ -134,7 +133,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
     if (!isTimeOpen) return null;
     return createPortal(
       <div 
-        className="time-picker-portal fixed z-[999999] bg-white rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.2)] border border-stone-200 w-32 h-48 flex overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="time-picker-portal fixed z-[999999] bg-white rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.25)] border border-stone-200 w-32 h-48 flex overflow-hidden"
         style={{ 
           top: coords.showUpward ? 'auto' : coords.top, 
           bottom: coords.showUpward ? (window.innerHeight - coords.top) : 'auto',
