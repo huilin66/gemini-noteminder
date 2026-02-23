@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../types';
-import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock } from 'lucide-react';
+import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock, ChevronDown, ChevronRight, EyeOff } from 'lucide-react';
 import { parseNoteWithAI } from '../services/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 import { translations } from '../utils/i18n';
@@ -162,6 +162,13 @@ const Notebook: React.FC<NotebookProps> = ({
   const [workDayEnd, setWorkDayEnd] = useState("21:00");
   const [exportResult, setExportResult] = useState("");
 
+  // New features state
+  const [hideCompleted, setHideCompleted] = useState(false);
+  const [groupingMode, setGroupingMode] = useState<'none' | 'week' | 'month'>('none');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
+
   const [draftPreset, setDraftPreset] = useState<{
       theme: NoteTheme;
       styleVariant: NoteStyleVariant;
@@ -275,6 +282,10 @@ const Notebook: React.FC<NotebookProps> = ({
         }
     }
 
+    if (hideCompleted) {
+        filtered = filtered.filter(n => n.status !== NoteStatus.DONE && n.status !== NoteStatus.CANCELLED);
+    }
+
     const statusPriority = {
         [NoteStatus.TODO]: 1,
         [NoteStatus.IN_PROGRESS]: 2,
@@ -317,7 +328,66 @@ const Notebook: React.FC<NotebookProps> = ({
       if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [currentGroupNotes, sortConfig, showTodayOnly, showFilters, filterConfig]);
+  }, [currentGroupNotes, sortConfig, showTodayOnly, showFilters, filterConfig, hideCompleted]);
+
+  const groupedNotes = useMemo(() => {
+    if (groupingMode === 'none') return { 'All': sortedNotes };
+
+    const groups: { [key: string]: Note[] } = {};
+    
+    sortedNotes.forEach(note => {
+      const date = new Date(note.startTime || note.createdAt);
+      let key = '';
+      
+      if (groupingMode === 'week') {
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+        const monday = new Date(d.setDate(diff));
+        monday.setHours(0,0,0,0);
+        key = monday.getTime().toString();
+      } else { // month
+        key = `${date.getFullYear()}-${date.getMonth()}`;
+      }
+      
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(note);
+    });
+    
+    return groups;
+  }, [sortedNotes, groupingMode]);
+
+  const getGroupLabel = (key: string) => {
+      if (groupingMode === 'none') return '';
+      if (groupingMode === 'week') {
+          const ts = parseInt(key);
+          if (isNaN(ts)) return key;
+          const d = new Date(ts);
+          const end = new Date(d);
+          end.setDate(d.getDate() + 6);
+          const fmt = (date: Date) => `${date.getMonth()+1}/${date.getDate()}`;
+          return `${d.getFullYear()} Week of ${fmt(d)} - ${fmt(end)}`;
+      }
+      if (groupingMode === 'month') {
+          const [y, m] = key.split('-');
+          const d = new Date(parseInt(y), parseInt(m));
+          return d.toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' });
+      }
+      return key;
+  };
+
+  const toggleGroupCollapse = (key: string) => {
+      setCollapsedGroups(prev => {
+          const next = new Set(prev);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+      });
+  };
+
+  const handleRefreshGroups = () => {
+      setCollapsedGroups(new Set());
+  };
 
   const startEditing = (note: Note) => {
     setEditingId(note.id);
@@ -867,21 +937,40 @@ const Notebook: React.FC<NotebookProps> = ({
     }
   };
 
-  const handleDragStart = (e: React.DragEvent, position: number) => {
-    if (editingId || sortConfig || showTodayOnly || showFilters) { e.preventDefault(); return; }
+  const handleDragStart = (e: React.DragEvent, position: number, noteId: string) => {
+    // 允许拖拽以跨笔记本移动，即使在排序模式下
     dragItem.current = position;
     e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData('text/plain', noteId);
   };
   const handleDragEnter = (e: React.DragEvent, position: number) => {
-    if (editingId || sortConfig || showTodayOnly || showFilters) return;
+    if (editingId || sortConfig || showTodayOnly || showFilters || hideCompleted || groupingMode !== 'none') return;
     dragOverItem.current = position;
   };
   const handleDragEnd = () => {
-    if (dragItem.current !== null && dragOverItem.current !== null && !sortConfig && !showTodayOnly && !showFilters) {
+    if (dragItem.current !== null && dragOverItem.current !== null && !sortConfig && !showTodayOnly && !showFilters && !hideCompleted && groupingMode === 'none') {
        onReorderNotes(dragItem.current, dragOverItem.current);
     }
     dragItem.current = null;
     dragOverItem.current = null;
+    setDragOverGroupId(null);
+  };
+
+  const handleNoteDropOnGroup = (e: React.DragEvent, targetGroupId: string, targetGroupName: string) => {
+    e.preventDefault();
+    const noteId = e.dataTransfer.getData('text/plain');
+    if (noteId && targetGroupId !== activeGroupId) {
+        confirmAction(
+            language === 'zh' ? "移动便签" : "Move Note",
+            language === 'zh' ? `确定要将此便签移动到 "${targetGroupName}" 吗？` : `Are you sure you want to move this note to "${targetGroupName}"?`,
+            () => {
+                const note = notes.find(n => n.id === noteId);
+                if (note) onUpdateNote({ ...note, groupId: targetGroupId });
+            },
+            'info'
+        );
+    }
+    setDragOverGroupId(null);
   };
 
   const handleGroupDragStart = (e: React.DragEvent, position: number) => {
@@ -955,7 +1044,22 @@ const Notebook: React.FC<NotebookProps> = ({
             <div className="p-4 h-full overflow-y-auto flex flex-col">
               <div className="text-xs font-bold text-stone-500 px-2 py-1 uppercase tracking-wider mb-2 flex items-center gap-2"><Library size={12} /> {t.groups.title}</div>
               {groups.map((group, index) => (
-                  <div key={group.id} draggable={!editingGroupId} onDragStart={(e) => handleGroupDragStart(e, index)} onDragEnter={(e) => handleGroupDragEnter(e, index)} onDragEnd={handleGroupDragEnd} onDragOver={(e) => e.preventDefault()} onClick={() => onSetActiveGroupId(group.id)} onDoubleClick={() => { setEditingGroupId(group.id); setTempGroupName(group.name); }} className={`p-3 mb-2 rounded-xl cursor-pointer text-sm font-medium transition-all flex items-center justify-between group/item border border-transparent ${activeGroupId === group.id ? 'bg-stone-800 text-white shadow-md border-stone-600' : 'hover:bg-black/5 text-stone-700 hover:border-black/10'}`}>
+                  <div 
+                    key={group.id} 
+                    draggable={!editingGroupId} 
+                    onDragStart={(e) => handleGroupDragStart(e, index)} 
+                    onDragEnter={(e) => handleGroupDragEnter(e, index)} 
+                    onDragEnd={handleGroupDragEnd} 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (activeGroupId !== group.id) setDragOverGroupId(group.id);
+                    }} 
+                    onDragLeave={() => setDragOverGroupId(null)}
+                    onDrop={(e) => handleNoteDropOnGroup(e, group.id, group.name)}
+                    onClick={() => onSetActiveGroupId(group.id)} 
+                    onDoubleClick={() => { setEditingGroupId(group.id); setTempGroupName(group.name); }} 
+                    className={`p-3 mb-2 rounded-xl cursor-pointer text-sm font-medium transition-all flex items-center justify-between group/item border ${dragOverGroupId === group.id ? 'bg-blue-600 text-white shadow-xl scale-105 border-blue-400' : (activeGroupId === group.id ? 'bg-stone-800 text-white shadow-md border-stone-600' : 'hover:bg-black/5 text-stone-700 hover:border-black/10 border-transparent')}`}
+                  >
                   <div className="flex items-center gap-2 overflow-hidden flex-1">
                       <div className="cursor-grab active:cursor-grabbing text-stone-400 opacity-0 group-hover/item:opacity-100 transition-opacity"><GripVertical size={12} /></div>
                       {editingGroupId === group.id ? (
@@ -1002,6 +1106,18 @@ const Notebook: React.FC<NotebookProps> = ({
                       </p>
                    </div>
                    <div className="flex gap-2 items-center">
+                       <button onClick={() => setHideCompleted(!hideCompleted)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow active:scale-95 transform ${hideCompleted ? 'bg-stone-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-50'}`} title={language === 'zh' ? "隐藏已完成/取消" : "Hide Completed/Cancelled"}>{hideCompleted ? <EyeOff size={16}/> : <Eye size={16}/>}</button>
+                       
+                       <div className="flex items-center bg-white rounded-lg shadow border border-stone-200 p-0.5">
+                           <button onClick={() => setGroupingMode('none')} className={`px-2 py-1 rounded text-xs font-bold transition-colors ${groupingMode === 'none' ? 'bg-blue-100 text-blue-700' : 'text-stone-500 hover:bg-stone-50'}`}>{language === 'zh' ? '无' : 'None'}</button>
+                           <button onClick={() => setGroupingMode('week')} className={`px-2 py-1 rounded text-xs font-bold transition-colors ${groupingMode === 'week' ? 'bg-blue-100 text-blue-700' : 'text-stone-500 hover:bg-stone-50'}`}>{language === 'zh' ? '周' : 'Week'}</button>
+                           <button onClick={() => setGroupingMode('month')} className={`px-2 py-1 rounded text-xs font-bold transition-colors ${groupingMode === 'month' ? 'bg-blue-100 text-blue-700' : 'text-stone-500 hover:bg-stone-50'}`}>{language === 'zh' ? '月' : 'Month'}</button>
+                       </div>
+
+                       <button onClick={handleRefreshGroups} className="flex items-center gap-1 px-2 py-1.5 bg-white text-stone-700 rounded-lg hover:bg-stone-50 transition-colors text-sm font-medium shadow active:scale-95 transform" title={language === 'zh' ? "刷新分组 (展开所有)" : "Refresh Groups (Expand All)"}><RefreshCw size={16} /></button>
+
+                       <div className="h-6 w-px bg-stone-300 mx-2"></div>
+
                        <button onClick={() => setShowFilters(!showFilters)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow active:scale-95 transform ${showFilters ? 'bg-blue-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-50'}`}><Filter size={16} /> <span className="hidden sm:inline">{t.toolbar.filter}</span></button>
                        <button onClick={() => setShowExportRecords(true)} className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"><FileText size={16} /> <span className="hidden sm:inline">{t.dataMenu.exportRecords}</span></button>
                        <button onClick={handleBatchPin} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform" title={t.toolbar.pinAllTitle}><Layers size={16} /> <span className="hidden sm:inline">{t.toolbar.pinAll}</span></button>
@@ -1076,9 +1192,28 @@ const Notebook: React.FC<NotebookProps> = ({
 
                   <div className="pb-10 pl-4">
                       {sortedNotes.length === 0 && <div className="text-center py-12 text-stone-500/50 italic">{t.table.empty}</div>}
-                      {sortedNotes.map((note, index) => {
+                      
+                      {Object.keys(groupedNotes).sort((a,b) => b.localeCompare(a)).map(groupKey => {
+                          const groupNotes = groupedNotes[groupKey];
+                          const isCollapsed = collapsedGroups.has(groupKey);
+                          const label = getGroupLabel(groupKey);
+                          
+                          return (
+                              <div key={groupKey}>
+                                  {groupingMode !== 'none' && (
+                                      <div 
+                                          className="flex items-center gap-2 py-2 px-2 bg-stone-100/80 hover:bg-stone-200/80 cursor-pointer border-b border-stone-200 backdrop-blur-sm sticky top-9 z-[9]"
+                                          onClick={() => toggleGroupCollapse(groupKey)}
+                                      >
+                                          {isCollapsed ? <ChevronRight size={14} className="text-stone-500" /> : <ChevronDown size={14} className="text-stone-500" />}
+                                          <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">{label}</span>
+                                          <span className="text-[10px] bg-stone-200 text-stone-600 px-1.5 rounded-full">{groupNotes.length}</span>
+                                      </div>
+                                  )}
+                                  
+                                  {!isCollapsed && groupNotes.map((note, index) => {
                         const isEditing = editingId === note.id;
-                        const isDraggable = !editingId && !sortConfig && !showTodayOnly && !showFilters;
+                        const isDraggable = !editingId; // 允许在任何视图拖拽，用于移动到笔记本
                         if (isEditing) {
                             return (
                                 <div key={note.id} className="flex items-start border-b border-blue-200 bg-blue-50/90 backdrop-blur-sm">
@@ -1096,7 +1231,7 @@ const Notebook: React.FC<NotebookProps> = ({
                         }
 
                         return (
-                            <div key={note.id} draggable={isDraggable} onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} onDoubleClick={() => startEditing(note)} className={`flex items-center border-b border-transparent hover:border-black/10 hover:bg-black/5 transition-colors group h-12 ${note.status === NoteStatus.DONE || note.status === NoteStatus.CANCELLED ? 'opacity-60 grayscale-[0.5]' : ''} ${note.isPinned ? 'bg-indigo-50/50' : ''}`}>
+                            <div key={note.id} draggable={isDraggable} onDragStart={(e) => handleDragStart(e, index, note.id)} onDragEnter={(e) => handleDragEnter(e, index)} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} onDoubleClick={() => startEditing(note)} className={`flex items-center border-b border-transparent hover:border-black/10 hover:bg-black/5 transition-colors group h-12 ${note.status === NoteStatus.DONE || note.status === NoteStatus.CANCELLED ? 'opacity-60 grayscale-[0.5]' : ''} ${note.isPinned ? 'bg-indigo-50/50' : ''}`}>
                                 <div style={{ width: colWidths.content }} className="flex items-center gap-2 px-2 overflow-hidden relative h-full">
                                     <div className={`absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 flex items-center gap-1 ${isDraggable ? 'cursor-move text-stone-400' : 'cursor-not-allowed text-stone-200'}`}>
                                         <GripVertical size={12} />
@@ -1140,6 +1275,9 @@ const Notebook: React.FC<NotebookProps> = ({
                                 </div>
                             </div>
                         );
+                      })}
+                              </div>
+                          );
                       })}
                   </div>
                </div>
@@ -1236,7 +1374,7 @@ const Notebook: React.FC<NotebookProps> = ({
                                   <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 flex-1 overflow-y-auto"> <NoteStyleControls theme={draftPreset.theme} styleVariant={draftPreset.styleVariant} textureVariant={draftPreset.textureVariant} decorationPosition={draftPreset.decorationPosition} opacity={draftPreset.theme.opacity} language={language} onUpdate={(updates) => { setDraftPreset(prev => ({ ...prev, ...updates, theme: { ...prev.theme, ...updates.theme } })); }} /> </div>
                                   <div className="flex gap-2"> <input className="flex-1 border rounded px-2 py-1.5 text-sm" placeholder="Style Name" value={newPresetName} onChange={e => setNewPresetName(e.target.value)} /> <button onClick={handleCreatePreset} disabled={!newPresetName} className="bg-stone-800 text-white px-3 rounded text-sm font-bold disabled:opacity-50">Save</button> </div>
                               </div>
-                              <div className="flex-1 overflow-y-auto"><div className="text-xs font-bold text-stone-400 uppercase mb-2">{t.settingsModal.presets}</div>{presets.map(preset => ( <div key={preset.id} className={`flex items-center justify-between p-2 rounded border mb-2 transition-colors group ${preset.isDefault ? 'bg-yellow-50 border-yellow-200' : 'hover:bg-stone-50 border-stone-200'}`}> <button onClick={() => loadPresetIntoDraft(preset)} className="text-sm font-bold text-stone-700 truncate text-left flex-1 flex items-center gap-2"> {preset.name} {preset.isDefault && <span className="text-[10px] bg-yellow-400 text-yellow-900 px-1.5 py-0.5 rounded-full">Default</span>} </button> <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"> <button onClick={() => handleSetDefaultPreset(preset.id)} className={`p-1.5 rounded transition-colors ${preset.isDefault ? 'text-yellow-500' : 'text-stone-300 hover:text-yellow-500'}`}> <Star size={14} fill={preset.isDefault ? "currentColor" : "none"} /> </button> <button onClick={() => handleDeletePreset(preset.id)} className="p-1.5 rounded text-stone-300 hover:text-red-500"> <Trash2 size={14}/> </button> </div> </div> ))} </div>
+                              <div className="flex-1 overflow-y-auto"><div className="text-xs font-bold text-stone-400 uppercase mb-2">{t.settingsModal.presets}</div>{presets.map(preset => ( <div key={preset.id} className={`flex items-center justify-between p-2 rounded border mb-2 transition-colors group ${preset.isDefault ? 'bg-yellow-50 border-yellow-200' : 'hover:bg-stone-50 border-stone-200'}`}> <button onClick={() => loadPresetIntoDraft(preset)} className="text-sm font-bold text-stone-700 truncate text-left flex-1 flex items-center gap-2"> {preset.name} {preset.isDefault && <span className="text-[10px] bg-yellow-400 text-yellow-900 px-1.5 py-0.5 rounded-full">Default</span>} </button> <div className="flex items-center gap-1 opacity-0 group-hover/opacity-100 transition-opacity"> <button onClick={() => handleSetDefaultPreset(preset.id)} className={`p-1.5 rounded transition-colors ${preset.isDefault ? 'text-yellow-500' : 'text-stone-300 hover:text-yellow-500'}`}> <Star size={14} fill={preset.isDefault ? "currentColor" : "none"} /> </button> <button onClick={() => handleDeletePreset(preset.id)} className="p-1.5 rounded text-stone-300 hover:text-red-500"> <Trash2 size={14}/> </button> </div> </div> ))} </div>
                           </div>
                       )}
                   </div>
@@ -1276,9 +1414,9 @@ const Notebook: React.FC<NotebookProps> = ({
                      </div>
                 ) : (
                     <div className="p-6">
-                        <div className="flex items-center gap-3 mb-4"><div className={`p-3 rounded-full ${modalConfig.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'}`}><AlertTriangle size={24} /></div><h3 className="text-xl font-bold text-stone-800">{modalConfig.title}</h3></div>
+                        <div className="flex items-center gap-3 mb-4"><div className={`p-3 rounded-full ${modalConfig.type === 'danger' ? 'bg-red-100 text-red-600' : (modalConfig.type === 'warning' ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600')}`}><AlertTriangle size={24} /></div><h3 className="text-xl font-bold text-stone-800">{modalConfig.title}</h3></div>
                         <p className="text-stone-600 mb-6 leading-relaxed">{modalConfig.message}</p>
-                        <div className="flex justify-end gap-3"><button onClick={() => setModalConfig({ ...modalConfig, isOpen: false })} className="px-5 py-2.5 rounded-xl font-bold text-stone-500 hover:bg-stone-100 transition-colors">Cancel</button><button onClick={modalConfig.onConfirm} className={`px-5 py-2.5 rounded-xl font-bold text-white shadow-lg transition-transform active:scale-95 ${modalConfig.type === 'danger' ? 'bg-red-500 hover:bg-red-600' : 'bg-stone-800 hover:bg-stone-900'}`}>Confirm</button></div>
+                        <div className="flex justify-end gap-3"><button onClick={() => setModalConfig({ ...modalConfig, isOpen: false })} className="px-5 py-2.5 rounded-xl font-bold text-stone-500 hover:bg-stone-100 transition-colors">Cancel</button><button onClick={modalConfig.onConfirm} className={`px-5 py-2.5 rounded-xl font-bold text-white shadow-lg transition-transform active:scale-95 ${modalConfig.type === 'danger' ? 'bg-red-500 hover:bg-red-600' : (modalConfig.type === 'info' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-stone-800 hover:bg-stone-900')}`}>Confirm</button></div>
                     </div>
                 )}
             </div>
