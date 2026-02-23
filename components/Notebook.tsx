@@ -144,6 +144,14 @@ const Notebook: React.FC<NotebookProps> = ({
   const [isResizingGroups, setIsResizingGroups] = useState(false);
   const [showTodayOnly, setShowTodayOnly] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+  
+  useEffect(() => {
+    if (showSettingsModal) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, [showSettingsModal]);
+
   const [settingsTab, setSettingsTab] = useState<'general' | 'bookshelf' | 'notebook' | 'presets'>('general');
   const [helpTab, setHelpTab] = useState<'general' | 'bookshelf' | 'notebooks' | 'notebook' | 'note' | 'settings' | 'update'>('general');
   
@@ -1430,11 +1438,11 @@ const Notebook: React.FC<NotebookProps> = ({
                                   <div className="flex items-center gap-2 bg-stone-50 p-3 rounded-lg border border-stone-200">
                                       <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Bell size={18} /></div>
                                       <div className="flex-1">
-                                          <div className="text-sm font-bold text-stone-700">{Notification.permission === 'granted' ? t.settingsModal.enabled : t.settingsModal.disabled}</div>
+                                          <div className="text-sm font-bold text-stone-700">{notificationPermission === 'granted' ? t.settingsModal.enabled : t.settingsModal.disabled}</div>
                                           <div className="text-xs text-stone-500">{t.settingsModal.notificationsDesc}</div>
                                       </div>
-                                      {Notification.permission !== 'granted' && (
-                                          <button onClick={() => Notification.requestPermission().then(() => setShowSettingsModal(false))} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700">
+                                      {notificationPermission !== 'granted' && (
+                                          <button onClick={() => Notification.requestPermission().then((permission) => setNotificationPermission(permission))} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700">
                                               {t.settingsModal.enable}
                                           </button>
                                       )}
