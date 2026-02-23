@@ -209,14 +209,22 @@ const App: React.FC = () => {
           
           setIsSystemNotificationActive(true);
           
+          let isClicked = false;
           notification.onclick = () => {
+              isClicked = true;
               window.focus();
               notification.close();
           };
 
           notification.onclose = () => {
               setIsSystemNotificationActive(false);
-              stopAlert();
+              if (isClicked) {
+                  // User clicked to open app -> Show in-app dialog (keep activeAlert)
+              } else {
+                  // User dismissed notification -> Turn off reminder
+                  updateNote({ ...note, isReminderOn: false });
+                  stopAlert();
+              }
           };
       }
       let visible = true;
