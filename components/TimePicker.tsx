@@ -30,6 +30,8 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
   const [selectedDate, setSelectedDate] = useState(parseValue(value));
   const [viewDate, setViewDate] = useState(new Date(selectedDate));
 
+  const [isSimpleMode, setIsSimpleMode] = useState(true);
+
   const isOpen = isDateOpen || isTimeOpen;
 
   // 1. 深度同步：当外部 value 改变时，强制更新内部状态
@@ -57,7 +59,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
         showUpward
       });
     }
-  }, [isOpen, isDateOpen, isTimeOpen]);
+  }, [isOpen, isDateOpen, isTimeOpen, isSimpleMode]);
 
   // 3. 全局点击关闭
   useEffect(() => {
@@ -95,7 +97,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
     commitChange(next);
   };
 
-  const formatDisplayDate = () => `${selectedDate.getFullYear()}/${pad(selectedDate.getMonth() + 1)}/${pad(selectedDate.getDate())}`;
+  const formatDisplayDate = () => `${pad(selectedDate.getMonth() + 1)}/${pad(selectedDate.getDate())}`;
   const formatDisplayTime = () => `${pad(selectedDate.getHours())}:${pad(selectedDate.getMinutes())}`;
 
   // 生成日历数据
@@ -106,9 +108,13 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
   for (let i = 1; i <= daysInMonth; i++) days.push(i);
   const weekDays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
+  // Simple Mode Data
+  const simpleHours = Array.from({ length: 15 }, (_, i) => i + 8); // 8 to 22
+  const simpleMinutes = [0, 10, 20, 30, 40, 50];
+
   return (
     <div className={`flex flex-wrap gap-1 items-center ${className} relative`} ref={triggerRef}>
-      <div className="relative flex-1 min-w-[90px]">
+      <div className="relative flex-1 min-w-[70px]">
         <button 
           onClick={(e) => { e.stopPropagation(); setIsDateOpen(!isDateOpen); setIsTimeOpen(false); }}
           className="w-full text-xs p-1.5 border rounded-md border-stone-200 hover:bg-stone-50 bg-white text-stone-700 font-mono flex items-center justify-between transition-colors"
@@ -118,7 +124,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
         </button>
       </div>
 
-      <div className="relative w-20 min-w-[70px]">
+      <div className="relative flex-1 min-w-[60px]">
         <button 
           onClick={(e) => { e.stopPropagation(); setIsTimeOpen(!isTimeOpen); setIsDateOpen(false); }}
           className="w-full text-xs p-1.5 border rounded-md border-stone-200 hover:bg-stone-50 bg-white text-stone-700 font-mono flex items-center justify-between transition-colors"
@@ -130,7 +136,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
 
       {isDateOpen && createPortal(
         <div 
-          className="time-picker-portal fixed z-[999999] bg-white rounded-xl shadow-[0_15px_50px_rgba(0,0,0,0.3)] border border-stone-200 p-3 w-56 select-none"
+          className="time-picker-portal fixed z-[999999] bg-white rounded-xl shadow-[0_15px_50px_rgba(0,0,0,0.3)] border border-stone-200 p-3 w-48 select-none"
           style={{ 
             top: coords.showUpward ? 'auto' : coords.top, 
             bottom: coords.showUpward ? (window.innerHeight - coords.top + triggerRef.current!.offsetHeight + 8) : 'auto',
@@ -164,7 +170,7 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
 
       {isTimeOpen && createPortal(
         <div 
-          className="time-picker-portal fixed z-[999999] bg-white rounded-xl shadow-[0_15px_50px_rgba(0,0,0,0.3)] border border-stone-200 w-32 h-48 flex overflow-hidden"
+          className={`time-picker-portal fixed z-[999999] bg-white rounded-xl shadow-[0_15px_50px_rgba(0,0,0,0.3)] border border-stone-200 flex flex-col overflow-hidden w-32 h-48`}
           style={{ 
             top: coords.showUpward ? 'auto' : coords.top, 
             bottom: coords.showUpward ? (window.innerHeight - coords.top + triggerRef.current!.offsetHeight + 8) : 'auto',
@@ -172,20 +178,54 @@ const TimePicker: React.FC<TimePickerProps> = ({ value, onChange, className }) =
           }}
           onMouseDown={e => e.stopPropagation()}
         >
-          <div className="flex-1 overflow-y-auto no-scrollbar border-r border-stone-100 bg-white overscroll-contain">
-            {Array.from({ length: 24 }).map((_, i) => (
-              <button key={i} onClick={() => handleTimeClick(i, selectedDate.getMinutes())} className={`w-full py-2.5 text-center text-xs hover:bg-stone-100 ${selectedDate.getHours() === i ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}>
-                {pad(i)}
-              </button>
-            ))}
+          <div className="flex justify-between items-center px-2 py-1 border-b border-stone-100 bg-stone-50">
+             <span className="text-[10px] font-bold text-stone-500 uppercase">{isSimpleMode ? 'Simple' : 'Full'}</span>
+             <button onClick={() => setIsSimpleMode(!isSimpleMode)} className="text-[10px] text-blue-600 hover:underline font-bold">Switch</button>
           </div>
-          <div className="flex-1 overflow-y-auto no-scrollbar bg-white overscroll-contain">
-            {Array.from({ length: 60 }).map((_, i) => (
-              <button key={i} onClick={() => handleTimeClick(selectedDate.getHours(), i)} className={`w-full py-2.5 text-center text-xs hover:bg-stone-100 ${selectedDate.getMinutes() === i ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}>
-                {pad(i)}
-              </button>
-            ))}
-          </div>
+          
+          {isSimpleMode ? (
+             <div className="flex flex-1 overflow-hidden">
+                <div className="flex-1 overflow-y-auto no-scrollbar border-r border-stone-100 bg-white p-1">
+                   <div className="text-[9px] text-stone-400 font-bold uppercase text-center mb-1">Hour</div>
+                   <div className="grid grid-cols-1 gap-1">
+                      {simpleHours.map(h => (
+                        <button key={h} onClick={() => handleTimeClick(h, selectedDate.getMinutes())} className={`w-full py-1.5 text-center text-xs rounded hover:bg-stone-100 ${selectedDate.getHours() === h ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}>
+                          {pad(h)}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+                <div className="flex-1 overflow-y-auto no-scrollbar bg-white p-1">
+                   <div className="text-[9px] text-stone-400 font-bold uppercase text-center mb-1">Min</div>
+                   <div className="grid grid-cols-1 gap-1">
+                      {simpleMinutes.map(m => (
+                        <button key={m} onClick={() => handleTimeClick(selectedDate.getHours(), m)} className={`w-full py-1.5 text-center text-xs rounded hover:bg-stone-100 ${selectedDate.getMinutes() === m ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}>
+                          {pad(m)}
+                        </button>
+                      ))}
+                   </div>
+                </div>
+             </div>
+          ) : (
+             <div className="flex flex-1 overflow-hidden">
+                <div className="flex-1 overflow-y-auto no-scrollbar border-r border-stone-100 bg-white p-1 overscroll-contain">
+                  <div className="text-[9px] text-stone-400 font-bold uppercase text-center mb-1">Hour</div>
+                  {Array.from({ length: 24 }).map((_, i) => (
+                    <button key={i} onClick={() => handleTimeClick(i, selectedDate.getMinutes())} className={`w-full py-2.5 text-center text-xs hover:bg-stone-100 ${selectedDate.getHours() === i ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}>
+                      {pad(i)}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 overflow-y-auto no-scrollbar bg-white p-1 overscroll-contain">
+                  <div className="text-[9px] text-stone-400 font-bold uppercase text-center mb-1">Min</div>
+                  {Array.from({ length: 60 }).map((_, i) => (
+                    <button key={i} onClick={() => handleTimeClick(selectedDate.getHours(), i)} className={`w-full py-2.5 text-center text-xs hover:bg-stone-100 ${selectedDate.getMinutes() === i ? 'bg-blue-50 text-blue-600 font-bold' : 'text-stone-600'}`}>
+                      {pad(i)}
+                    </button>
+                  ))}
+                </div>
+             </div>
+          )}
         </div>,
         document.body
       )}

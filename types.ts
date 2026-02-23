@@ -88,6 +88,7 @@ export interface ColumnWidths {
   createdAt: number;
   startTime: number;
   endTime: number;
+  duration: number;
   location: number;
   importance: number;
   status: number;

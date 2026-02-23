@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../types';
-import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock, ChevronDown, ChevronRight, EyeOff } from 'lucide-react';
+import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock, ChevronDown, ChevronRight, EyeOff, Hourglass, ChevronsDown, ChevronsRight } from 'lucide-react';
 import { parseNoteWithAI } from '../services/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 import { translations } from '../utils/i18n';
@@ -69,7 +69,7 @@ const toDateTimeLocal = (ts?: number) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
 
-type SortKey = 'createdAt' | 'startTime' | 'endTime' | 'importance' | 'status' | 'reminderTime';
+type SortKey = 'createdAt' | 'startTime' | 'endTime' | 'importance' | 'status' | 'reminderTime' | 'duration';
 interface SortConfig {
   key: SortKey;
   direction: 'asc' | 'desc';
@@ -166,6 +166,7 @@ const Notebook: React.FC<NotebookProps> = ({
   const [hideCompleted, setHideCompleted] = useState(false);
   const [groupingMode, setGroupingMode] = useState<'none' | 'week' | 'month'>('none');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [allCollapsed, setAllCollapsed] = useState(false);
 
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
 
@@ -190,11 +191,12 @@ const Notebook: React.FC<NotebookProps> = ({
   });
   
   const [colWidths, setColWidths] = useState<ColumnWidths>({
-    content: 350,
-    createdAt: 110,
-    startTime: 110,
-    endTime: 110,
-    location: 90,
+    content: 300,
+    createdAt: 85,
+    startTime: 85,
+    endTime: 85,
+    duration: 90,
+    location: 80,
     importance: 70,
     status: 90,
     reminder: 110,
@@ -215,6 +217,7 @@ const Notebook: React.FC<NotebookProps> = ({
     createdAt: string;
     startTime: string;
     endTime: string;
+    duration: number;
     location: string;
     status: NoteStatus;
     importance: NoteImportance;
@@ -225,6 +228,7 @@ const Notebook: React.FC<NotebookProps> = ({
     createdAt: '',
     startTime: '',
     endTime: '',
+    duration: 60,
     location: '',
     status: NoteStatus.TODO,
     importance: NoteImportance.MEDIUM,
@@ -335,18 +339,38 @@ const Notebook: React.FC<NotebookProps> = ({
 
     const groups: { [key: string]: Note[] } = {};
     
+    // Calculate current week start (Monday)
+    const now = new Date();
+    const currentDay = now.getDay();
+    const diff = now.getDate() - currentDay + (currentDay === 0 ? -6 : 1); // Monday
+    const currentWeekStart = new Date(now.setDate(diff));
+    currentWeekStart.setHours(0,0,0,0);
+    const currentWeekEnd = new Date(currentWeekStart);
+    currentWeekEnd.setDate(currentWeekStart.getDate() + 6);
+    currentWeekEnd.setHours(23,59,59,999);
+    
+    const currentWeekKey = currentWeekStart.getTime().toString();
+    
     sortedNotes.forEach(note => {
-      const date = new Date(note.startTime || note.createdAt);
       let key = '';
       
       if (groupingMode === 'week') {
-        const d = new Date(date);
-        const day = d.getDay();
-        const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
-        const monday = new Date(d.setDate(diff));
-        monday.setHours(0,0,0,0);
-        key = monday.getTime().toString();
+        const start = note.startTime || note.createdAt;
+        const end = note.endTime || start;
+        
+        // Check if overlaps with current week
+        if (start <= currentWeekEnd.getTime() && end >= currentWeekStart.getTime()) {
+            key = currentWeekKey;
+        } else {
+            const d = new Date(start);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+            const monday = new Date(d.setDate(diff));
+            monday.setHours(0,0,0,0);
+            key = monday.getTime().toString();
+        }
       } else { // month
+        const date = new Date(note.startTime || note.createdAt);
         key = `${date.getFullYear()}-${date.getMonth()}`;
       }
       
@@ -366,7 +390,16 @@ const Notebook: React.FC<NotebookProps> = ({
           const end = new Date(d);
           end.setDate(d.getDate() + 6);
           const fmt = (date: Date) => `${date.getMonth()+1}/${date.getDate()}`;
-          return `${d.getFullYear()} Week of ${fmt(d)} - ${fmt(end)}`;
+          
+          // Check if it is current week
+          const now = new Date();
+          const currentDay = now.getDay();
+          const diff = now.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
+          const currentWeekStart = new Date(now.setDate(diff));
+          currentWeekStart.setHours(0,0,0,0);
+          
+          const label = `${d.getFullYear()} Week of ${fmt(d)} - ${fmt(end)}`;
+          return d.getTime() === currentWeekStart.getTime() ? `${label} (Current Week)` : label;
       }
       if (groupingMode === 'month') {
           const [y, m] = key.split('-');
@@ -385,23 +418,82 @@ const Notebook: React.FC<NotebookProps> = ({
       });
   };
 
-  const handleRefreshGroups = () => {
-      setCollapsedGroups(new Set());
+  const handleToggleCollapseAll = () => {
+      if (allCollapsed) {
+          setCollapsedGroups(new Set());
+          setAllCollapsed(false);
+      } else {
+          setCollapsedGroups(new Set(Object.keys(groupedNotes)));
+          setAllCollapsed(true);
+      }
   };
 
   const startEditing = (note: Note) => {
     setEditingId(note.id);
+    const start = note.startTime || Date.now();
+    const end = note.endTime || start + 3600000;
+    const dur = Math.round((end - start) / 60000);
+
     setFormData({
       content: note.content,
       createdAt: toDateTimeLocal(note.createdAt),
       startTime: toDateTimeLocal(note.startTime),
       endTime: toDateTimeLocal(note.endTime),
+      duration: dur,
       location: note.location || '无',
       status: note.status,
       importance: note.importance || NoteImportance.MEDIUM,
       isReminderOn: note.isReminderOn,
       reminderTime: toDateTimeLocal(note.reminderTime)
     });
+  };
+
+  const formatDuration = (minutes: number) => {
+      if (minutes < 60 * 24) {
+          const hours = (minutes / 60).toFixed(1);
+          return `${hours.endsWith('.0') ? hours.slice(0, -2) : hours}h`;
+      } else {
+          const days = (minutes / (60 * 24)).toFixed(1);
+          return `${days.endsWith('.0') ? days.slice(0, -2) : days}d`;
+      }
+  };
+
+  const handleDurationChange = (value: number, type: 'hour' | 'day') => {
+      let dur = formData.duration;
+      if (type === 'hour') {
+          dur = value * 60;
+      } else {
+          dur = value * 60 * 24;
+      }
+      
+      const start = formData.startTime ? new Date(formData.startTime).getTime() : Date.now();
+      const end = start + dur * 60000;
+      setFormData({
+          ...formData,
+          duration: dur,
+          endTime: toDateTimeLocal(end)
+      });
+  };
+  
+  const handleStartTimeChange = (val: string) => {
+      const start = new Date(val).getTime();
+      const end = start + formData.duration * 60000;
+      setFormData({
+          ...formData,
+          startTime: val,
+          endTime: toDateTimeLocal(end)
+      });
+  };
+
+  const handleEndTimeChange = (val: string) => {
+      const end = new Date(val).getTime();
+      const start = formData.startTime ? new Date(formData.startTime).getTime() : end - 3600000;
+      const dur = Math.round((end - start) / 60000);
+      setFormData({
+          ...formData,
+          endTime: val,
+          duration: dur
+      });
   };
 
   const saveEditing = (id: string) => {
@@ -698,6 +790,8 @@ const Notebook: React.FC<NotebookProps> = ({
 
   const exportCSV = () => {
     const groupName = groups.find(g => g.id === activeGroupId)?.name || 'Export';
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
     const header = ['ID', 'Content', 'AddedTime', 'StartTime', 'EndTime', 'Location', 'Status', 'Importance', 'ReminderOn', 'ReminderTime'].join(',');
     const rows = sortedNotes.map(n => [
       n.id,
@@ -716,7 +810,7 @@ const Notebook: React.FC<NotebookProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${groupName}.csv`;
+    a.download = `${groupName}_${timestamp}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1114,7 +1208,7 @@ const Notebook: React.FC<NotebookProps> = ({
                            <button onClick={() => setGroupingMode('month')} className={`px-2 py-1 rounded text-xs font-bold transition-colors ${groupingMode === 'month' ? 'bg-blue-100 text-blue-700' : 'text-stone-500 hover:bg-stone-50'}`}>{language === 'zh' ? '月' : 'Month'}</button>
                        </div>
 
-                       <button onClick={handleRefreshGroups} className="flex items-center gap-1 px-2 py-1.5 bg-white text-stone-700 rounded-lg hover:bg-stone-50 transition-colors text-sm font-medium shadow active:scale-95 transform" title={language === 'zh' ? "刷新分组 (展开所有)" : "Refresh Groups (Expand All)"}><RefreshCw size={16} /></button>
+                       <button onClick={handleToggleCollapseAll} className="flex items-center gap-1 px-2 py-1.5 bg-white text-stone-700 rounded-lg hover:bg-stone-50 transition-colors text-sm font-medium shadow active:scale-95 transform" title={language === 'zh' ? (allCollapsed ? "展开所有" : "折叠所有") : (allCollapsed ? "Expand All" : "Collapse All")}>{allCollapsed ? <ChevronsRight size={16} /> : <ChevronsDown size={16} />}</button>
 
                        <div className="h-6 w-px bg-stone-300 mx-2"></div>
 
@@ -1183,6 +1277,7 @@ const Notebook: React.FC<NotebookProps> = ({
                       <HeaderCell label={t.table.added} colKey="createdAt" sortKey="createdAt" />
                       <HeaderCell label={t.table.start} colKey="startTime" sortKey="startTime" />
                       <HeaderCell label={t.table.end} colKey="endTime" sortKey="endTime" />
+                      <HeaderCell label={language === 'zh' ? '持续时间' : 'Duration'} colKey="duration" sortKey="duration" />
                       <HeaderCell label={t.table.location} colKey="location" />
                       <HeaderCell label={t.table.importance} colKey="importance" sortKey="importance" />
                       <HeaderCell label={t.table.status} colKey="status" sortKey="status" />
@@ -1219,8 +1314,18 @@ const Notebook: React.FC<NotebookProps> = ({
                                 <div key={note.id} className="flex items-start border-b border-blue-200 bg-blue-50/90 backdrop-blur-sm">
                                     <div style={{ width: colWidths.content }} className="p-2"><div className="flex gap-1"><input autoFocus className="w-full text-sm p-1.5 border rounded" placeholder="Event description..." value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} /><button onClick={handleAIParse} disabled={isProcessingAI} className="p-1 bg-indigo-100 text-indigo-600 rounded"><Sparkles size={14} className={isProcessingAI ? 'animate-spin' : ''} /></button></div></div>
                                     <div style={{ width: colWidths.createdAt }} className="p-2"><TimePicker value={formData.createdAt} onChange={(v) => setFormData({...formData, createdAt: v})} /></div>
-                                    <div style={{ width: colWidths.startTime }} className="p-2"><TimePicker value={formData.startTime} onChange={(v) => setFormData({ ...formData, startTime: v })} /></div>
-                                    <div style={{ width: colWidths.endTime }} className="p-2"><TimePicker value={formData.endTime} onChange={(v) => setFormData({...formData, endTime: v})} /></div>
+                                    <div style={{ width: colWidths.startTime }} className="p-2"><TimePicker value={formData.startTime} onChange={handleStartTimeChange} /></div>
+                                    <div style={{ width: colWidths.endTime }} className="p-2"><TimePicker value={formData.endTime} onChange={handleEndTimeChange} /></div>
+                                    <div style={{ width: colWidths.duration }} className="p-2 flex flex-col gap-1">
+                                        <div className="flex items-center gap-1">
+                                            <input type="number" className="w-full text-xs p-1.5 border rounded" placeholder="0" value={formData.duration < 60 * 24 ? (formData.duration / 60).toFixed(1).replace(/\.0$/, '') : ''} onChange={e => handleDurationChange(parseFloat(e.target.value) || 0, 'hour')} />
+                                            <span className="text-[10px] text-stone-400 font-bold w-3">h</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <input type="number" className="w-full text-xs p-1.5 border rounded" placeholder="0" value={formData.duration >= 60 * 24 ? (formData.duration / (60 * 24)).toFixed(1).replace(/\.0$/, '') : ''} onChange={e => handleDurationChange(parseFloat(e.target.value) || 0, 'day')} />
+                                            <span className="text-[10px] text-stone-400 font-bold w-3">d</span>
+                                        </div>
+                                    </div>
                                     <div style={{ width: colWidths.location }} className="p-2"><input className="w-full text-xs p-1 border rounded" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} /></div>
                                     <div style={{ width: colWidths.importance }} className="p-2"><select className="w-full text-xs p-1 border rounded" value={formData.importance} onChange={e => setFormData({...formData, importance: e.target.value as NoteImportance})}><option value={NoteImportance.HIGH}>{t.importance.high}</option><option value={NoteImportance.MEDIUM}>{t.importance.medium}</option><option value={NoteImportance.LOW}>{t.importance.low}</option></select></div>
                                     <div style={{ width: colWidths.status }} className="p-2"><select className="w-full text-xs p-1 border rounded" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as NoteStatus})}>{Object.values(NoteStatus).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
@@ -1245,6 +1350,7 @@ const Notebook: React.FC<NotebookProps> = ({
                                 <div style={{ width: colWidths.createdAt }} className="px-2 text-xs text-stone-500 truncate">{formatDate(note.createdAt)}</div>
                                 <div style={{ width: colWidths.startTime }} className="px-2 text-xs text-stone-800 font-mono truncate">{note.startTime ? formatDate(note.startTime) : '-'}</div>
                                 <div style={{ width: colWidths.endTime }} className="px-2 text-xs text-stone-400 font-mono truncate">{note.endTime ? formatDate(note.endTime) : '-'}</div>
+                                <div style={{ width: colWidths.duration }} className="px-2 text-xs text-stone-500 font-mono truncate">{note.startTime && note.endTime ? formatDuration(Math.round((note.endTime - note.startTime) / 60000)) : '-'}</div>
                                 <div style={{ width: colWidths.location }} className="px-2 text-xs text-stone-500 truncate" title={note.location}>{note.location && note.location !== '无' ? (<span className="flex items-center gap-1"><MapPin size={10} /> {note.location}</span>) : '-'}</div>
                                 <div style={{ width: colWidths.importance }} className="px-2"><span className={`text-[9px] px-1.5 py-0.5 rounded border font-medium ${note.importance === NoteImportance.HIGH ? 'bg-red-50 text-red-600 border-red-200' : note.importance === NoteImportance.LOW ? 'bg-green-50 text-green-600 border-green-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}> {note.importance === NoteImportance.HIGH ? t.importance.high : note.importance === NoteImportance.MEDIUM ? t.importance.medium : t.importance.low} </span></div>
                                 <div style={{ width: colWidths.status }} className="px-2"><span className={`text-[9px] font-bold uppercase tracking-wider ${note.status === NoteStatus.TODO ? 'text-stone-400' : note.status === NoteStatus.IN_PROGRESS ? 'text-blue-500' : note.status === NoteStatus.PARTIAL ? 'text-orange-500' : note.status === NoteStatus.CANCELLED ? 'text-stone-300' : 'text-green-500'}`}> {note.status} </span></div>
@@ -1319,9 +1425,24 @@ const Notebook: React.FC<NotebookProps> = ({
                                       <div className="text-xs text-stone-500 ml-2 border-l pl-2 border-stone-300">{t.settingsModal.autoSaveDesc}</div>
                                   </div>
                               </div>
+                              <div>
+                                  <label className="text-xs font-bold text-stone-400 uppercase tracking-wider block mb-2">{t.settingsModal.notifications}</label>
+                                  <div className="flex items-center gap-2 bg-stone-50 p-3 rounded-lg border border-stone-200">
+                                      <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Bell size={18} /></div>
+                                      <div className="flex-1">
+                                          <div className="text-sm font-bold text-stone-700">{Notification.permission === 'granted' ? t.settingsModal.enabled : t.settingsModal.disabled}</div>
+                                          <div className="text-xs text-stone-500">{t.settingsModal.notificationsDesc}</div>
+                                      </div>
+                                      {Notification.permission !== 'granted' && (
+                                          <button onClick={() => Notification.requestPermission().then(() => setShowSettingsModal(false))} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700">
+                                              {t.settingsModal.enable}
+                                          </button>
+                                      )}
+                                  </div>
+                              </div>
                               <div className="p-4 bg-stone-50 rounded-xl text-stone-500 text-sm leading-relaxed border border-stone-100 mt-4">
                                   <p>{t.settingsModal.generatedBy}</p>
-                                  <p className="mt-2 text-xs opacity-50">Version 4.9.0</p>
+                                  <p className="mt-2 text-xs opacity-50">Version 5.0.0</p>
                               </div>
                           </div>
                       )}

@@ -67,7 +67,12 @@ export const translations = {
       autoSave: "Auto-Save Interval (XLSX)",
       autoSaveDesc: "Download XLSX backup automatically.",
       minutes: "min",
-      off: "Off"
+      off: "Off",
+      notifications: "Desktop Notifications",
+      notificationsDesc: "Enable persistent reminders.",
+      enabled: "Enabled",
+      disabled: "Disabled",
+      enable: "Enable"
     },
     dataMenu: {
       openFolder: "Set Data Folder",
@@ -223,6 +228,7 @@ export const translations = {
         update: {
           title: "Update History",
           items: [
+            "v5.0.0: Added 'Duration' column with auto-calculation, Simple Time Picker mode, Grouping by Week/Month, and Hide Completed toggle.",
             "v4.9.0: Added 'Cancelled' status, Custom Status Sorting, 'Pin to Top' in list, and Time-Resetting action buttons.",
             "v4.8.0: Added 'Partial' status, Advanced Filtering, Unpin All button.",
             "v4.6.0: Added Auto-Save configuration in Settings."
@@ -296,7 +302,12 @@ export const translations = {
       autoSave: "自动保存间隔 (XLSX)",
       autoSaveDesc: "定时自动下载 XLSX 备份文件。",
       minutes: "分钟",
-      off: "关闭"
+      off: "关闭",
+      notifications: "桌面通知",
+      notificationsDesc: "开启后，提醒将常驻桌面直到关闭。",
+      enabled: "已开启",
+      disabled: "未开启",
+      enable: "开启"
     },
     dataMenu: {
       openFolder: "设置数据保存文件夹",
@@ -447,6 +458,7 @@ export const translations = {
         update: {
           title: "更新日志",
           items: [
+            "v5.0.0: 新增“持续时间”列及自动计算、简约时间选择模式、按周/月分组折叠、以及隐藏已完成/取消事件的开关。",
             "v4.9.0: 新增“取消执行”状态、自定义状态排序规则、列表置顶功能、以及“开始/完成并重置时间”操作按钮。",
             "v4.8.0: 新增“部分完成”状态、一键取消固定、高级筛选栏，优化了编辑时的布局。",
             "v4.6.0: 增加自动保存 (Auto-Save) 设置。"

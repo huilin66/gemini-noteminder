@@ -85,6 +85,7 @@ const App: React.FC = () => {
   const [language, setLanguage] = useState<Language>('zh');
   const [maxZIndex, setMaxZIndex] = useState(10);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isSystemNotificationActive, setIsSystemNotificationActive] = useState(false);
   const [activeAlert, setActiveAlert] = useState<Note | null>(null);
   const [snoozeMinutes, setSnoozeMinutes] = useState(10);
   const titleIntervalRef = useRef<number | null>(null);
@@ -96,7 +97,9 @@ const App: React.FC = () => {
   useEffect(() => { groupsRef.current = groups; }, [groups]);
 
   useEffect(() => {
-    if ('Notification' in window && Notification.permission !== 'granted') Notification.requestPermission();
+    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      // Optional: Auto-request or let user do it via settings
+    }
     const faviconLink = document.getElementById('favicon') as HTMLLinkElement;
     if (faviconLink) faviconLink.href = FAVICON_NORMAL;
     document.title = originalTitle;
@@ -193,7 +196,28 @@ const App: React.FC = () => {
   const triggerAlert = (note: Note) => {
       setActiveAlert(note);
       if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('Gemini NoteMinder Reminder', { body: note.content, icon: FAVICON_ALARM, tag: 'noteminder-alert' });
+          const startTime = note.startTime ? new Date(note.startTime).toLocaleString() : 'No time';
+          const location = note.location || 'No location';
+          const body = `${note.content}\nTime: ${startTime}\nLocation: ${location}`;
+          
+          const notification = new Notification('Gemini NoteMinder Reminder', { 
+              body: body, 
+              icon: FAVICON_ALARM, 
+              tag: 'noteminder-alert',
+              requireInteraction: true
+          });
+          
+          setIsSystemNotificationActive(true);
+          
+          notification.onclick = () => {
+              window.focus();
+              notification.close();
+          };
+
+          notification.onclose = () => {
+              setIsSystemNotificationActive(false);
+              stopAlert();
+          };
       }
       let visible = true;
       const fl = document.getElementById('favicon') as HTMLLinkElement;
@@ -207,6 +231,7 @@ const App: React.FC = () => {
 
   const stopAlert = () => {
       setActiveAlert(null);
+      setIsSystemNotificationActive(false);
       if (titleIntervalRef.current) { clearInterval(titleIntervalRef.current); titleIntervalRef.current = null; }
       document.title = originalTitle;
       const fl = document.getElementById('favicon') as HTMLLinkElement;
@@ -312,7 +337,7 @@ const App: React.FC = () => {
             }).map(note => <div key={note.id} className="pointer-events-auto absolute"><StickyNote note={note} presets={presets} onUpdate={updateNote} onClose={(id) => togglePin(id)} onFocus={bringToFront} language={language} /></div> )}
           </div>
       )}
-      {activeAlert && (
+      {activeAlert && !isSystemNotificationActive && (
           <div className="fixed top-4 right-4 z-[9999] w-80 bg-white rounded-lg shadow-2xl border-l-4 border-blue-500 animate-bounce-short pointer-events-auto">
               <div className="p-4">
                   <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg flex items-center gap-2 text-stone-800"><Bell className="text-blue-500 fill-blue-500" /> Reminder</h3><button onClick={stopAlert} className="text-stone-400 hover:text-stone-600"><X size={18} /></button></div>
