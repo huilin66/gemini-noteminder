@@ -193,6 +193,15 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [notes, activeAlert]);
 
+  useEffect(() => {
+    if (activeAlert) {
+      const currentNote = notes.find(n => n.id === activeAlert.id);
+      if (!currentNote || !currentNote.isReminderOn) {
+        stopAlert();
+      }
+    }
+  }, [notes, activeAlert]);
+
   const triggerAlert = (note: Note) => {
       setActiveAlert(note);
       if ('Notification' in window && Notification.permission === 'granted') {
@@ -348,7 +357,7 @@ const App: React.FC = () => {
       {activeAlert && !isSystemNotificationActive && (
           <div className="fixed top-4 right-4 z-[9999] w-80 bg-white rounded-lg shadow-2xl border-l-4 border-blue-500 animate-bounce-short pointer-events-auto">
               <div className="p-4">
-                  <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg flex items-center gap-2 text-stone-800"><Bell className="text-blue-500 fill-blue-500" /> Reminder</h3><button onClick={stopAlert} className="text-stone-400 hover:text-stone-600"><X size={18} /></button></div>
+                  <div className="flex justify-between items-start mb-2"><h3 className="font-bold text-lg flex items-center gap-2 text-stone-800"><Bell className="text-blue-500 fill-blue-500" /> Reminder</h3><button onClick={handleDismiss} className="text-stone-400 hover:text-stone-600"><X size={18} /></button></div>
                   <p className="text-stone-700 mb-4 font-medium">{activeAlert.content}</p>
                   <div className="flex flex-col gap-2">
                       <div className="flex gap-2"><button onClick={handleDismiss} className="flex-1 bg-stone-200 hover:bg-stone-300 text-stone-700 py-2 rounded text-sm font-bold">Dismiss</button><button onClick={handleSnooze} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-sm font-bold">Snooze</button></div>

@@ -567,7 +567,7 @@ const Notebook: React.FC<NotebookProps> = ({
       status: NoteStatus.TODO,
       importance: NoteImportance.MEDIUM,
       isReminderOn: false,
-      reminderTime: now,
+      reminderTime: undefined,
       isPinned: false,
       position: { x: window.innerWidth / 2 - 128, y: window.innerHeight / 2 - 100 },
       zIndex: currentMaxZIndex + 1,
@@ -1337,7 +1337,20 @@ const Notebook: React.FC<NotebookProps> = ({
                                     <div style={{ width: colWidths.location }} className="p-2"><input className="w-full text-xs p-1 border rounded" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} /></div>
                                     <div style={{ width: colWidths.importance }} className="p-2"><select className="w-full text-xs p-1 border rounded" value={formData.importance} onChange={e => setFormData({...formData, importance: e.target.value as NoteImportance})}><option value={NoteImportance.HIGH}>{t.importance.high}</option><option value={NoteImportance.MEDIUM}>{t.importance.medium}</option><option value={NoteImportance.LOW}>{t.importance.low}</option></select></div>
                                     <div style={{ width: colWidths.status }} className="p-2"><select className="w-full text-xs p-1 border rounded" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as NoteStatus})}>{Object.values(NoteStatus).map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-                                    <div style={{ width: colWidths.reminder }} className="p-2"><button onClick={() => setFormData(prev => ({...prev, isReminderOn: !prev.isReminderOn}))} className={`w-full text-[10px] p-1 mb-1 rounded border ${formData.isReminderOn ? 'bg-blue-100 text-blue-700' : 'bg-stone-100'}`}>{formData.isReminderOn ? 'ON' : 'OFF'}</button>{formData.isReminderOn && <TimePicker value={formData.reminderTime} onChange={(v) => setFormData({...formData, reminderTime: v})} />}</div>
+                                    <div style={{ width: colWidths.reminder }} className="p-2">
+                                        <button onClick={() => setFormData(prev => {
+                                            const isTurningOn = !prev.isReminderOn;
+                                            let newReminderTime = prev.reminderTime;
+                                            if (isTurningOn && !newReminderTime) {
+                                                const baseTime = prev.startTime ? new Date(prev.startTime).getTime() : Date.now();
+                                                newReminderTime = toDateTimeLocal(baseTime - 15 * 60000);
+                                            }
+                                            return { ...prev, isReminderOn: isTurningOn, reminderTime: newReminderTime };
+                                        })} className={`w-full text-[10px] p-1 mb-1 rounded border ${formData.isReminderOn ? 'bg-blue-100 text-blue-700' : 'bg-stone-100'}`}>
+                                            {formData.isReminderOn ? 'ON' : 'OFF'}
+                                        </button>
+                                        {formData.isReminderOn && <TimePicker value={formData.reminderTime} onChange={(v) => setFormData({...formData, reminderTime: v})} />}
+                                    </div>
                                     <div style={{ width: colWidths.actions }} className="p-2 flex justify-end gap-1"><button onClick={() => saveEditing(note.id)} className="p-1.5 bg-green-600 text-white rounded"><Save size={14} /></button><button onClick={() => setEditingId(null)} className="p-1.5 bg-stone-200 text-stone-600 rounded"><X size={14} /></button></div>
                                 </div>
                             );
