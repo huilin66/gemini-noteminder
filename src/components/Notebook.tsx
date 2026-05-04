@@ -1314,22 +1314,23 @@ useEffect(() => {
     return Math.random().toString(36).substring(2, 8);
   };
   const getInitialAiRecordSchema = (): RecordFieldSchema[] => [
-      { id: 'train_id', label: t.record.id, type: 'text', isVisible: true, order: 1, width: 80, isSystem: true },
-      { id: 'ref_id', label: t.record.refId, type: 'text', isVisible: true, order: 2, width: 80 },
-      { id: 'model', label: t.record.modelName, type: 'text', isVisible: true, order: 3, width: 120 },
-      { id: 'dataset', label: t.record.dataset, type: 'text', isVisible: true, order: 4, width: 120 },
-      { id: 'config_file', label: t.record.configFile, type: 'text', isVisible: true, order: 4, width: 150 },
-      { id: 'remark', label: t.record.remark, type: 'text', isVisible: true, order: 4, width: 100 },
-      { id: 'createdAt', label: t.table.added, type: 'date', isVisible: true, order: 5, width: 100, isSystem: true },
-      { id: 'startTime', label: t.table.start, type: 'date', isVisible: true, order: 6, width: 100, isSystem: true },
-      { id: 'endTime', label: t.table.end, type: 'date', isVisible: true, order: 7, width: 100, isSystem: true },
-      { id: 'duration', label: t.record.duration, type: 'text', isVisible: true, order: 8, width: 90, isSystem: true },
-      { id: 'server', label: t.record.server, type: 'text', isVisible: true, order: 9, width: 100 },
-      { id: 'result_path', label: t.record.resultPath, type: 'link', isVisible: true, order: 10, width: 150 },
-      { id: 'importance', label: t.table.importance, type: 'status', isVisible: true, order: 11, width: 80, isSystem: true },
-      { id: 'status', label: t.table.status, type: 'status', isVisible: true, order: 12, width: 80, isSystem: true },
-      { id: 'reminder', label: t.table.reminder, type: 'date', isVisible: true, order: 13, width: 100, isSystem: true },
-      { id: 'accuracy', label: t.record.accuracy, type: 'number', isVisible: true, order: 14, width: 100 },
+      { id: 'train_id', label: t.record.id, type: 'text', isVisible: true, order: 10, width: 50, isSystem: true },
+      { id: 'ref_id', label: t.record.refId, type: 'text', isVisible: true, order: 10, width: 50 },
+      { id: 'accuracy', label: t.record.accuracy, type: 'number', isVisible: true, order: 10, width: 60 },
+      { id: 'model', label: t.record.modelName, type: 'text', isVisible: true, order: 20, width: 80 },
+      { id: 'dataset', label: t.record.dataset, type: 'text', isVisible: true, order: 20, width: 80 },
+      { id: 'config_file', label: t.record.configFile, type: 'text', isVisible: true, order: 20, width: 80 },
+      { id: 'remark', label: t.record.remark, type: 'text', isVisible: true, order: 20, width: 100 },
+      
+      { id: 'server', label: t.record.server, type: 'text', isVisible: true, order: 30, width: 70 },
+      { id: 'result_path', label: t.record.resultPath, type: 'link', isVisible: true, order: 30, width: 100 },
+      { id: 'createdAt', label: t.table.added, type: 'date', isVisible: true, order: 40, width: 100, isSystem: true },
+      { id: 'startTime', label: t.table.start, type: 'date', isVisible: true, order: 40, width: 100, isSystem: true },
+      { id: 'endTime', label: t.table.end, type: 'date', isVisible: true, order: 40, width: 100, isSystem: true },
+      { id: 'duration', label: t.record.duration, type: 'text', isVisible: true, order: 40, width: 90, isSystem: true },
+      { id: 'importance', label: t.table.importance, type: 'status', isVisible: true, order: 50, width: 80, isSystem: true },
+      { id: 'status', label: t.table.status, type: 'status', isVisible: true, order: 50, width: 80, isSystem: true },
+      { id: 'reminder', label: t.table.reminder, type: 'date', isVisible: true, order: 50, width: 100, isSystem: true },
     ];
   const handleConvertRequest = () => {
     confirmAction(
@@ -1785,15 +1786,15 @@ useEffect(() => {
                              <div 
                                key={field.id} 
                                style={{ width: currentWidth }} 
-                               className="relative flex items-center h-full px-2 text-xs font-bold text-stone-600 uppercase tracking-wider select-none bg-stone-50/80 hover:bg-stone-200/80 transition-colors backdrop-blur-sm"
+                               className="shrink-0 relative flex items-center h-full px-2 text-xs font-bold text-stone-600 uppercase tracking-wider select-none bg-stone-50/80 hover:bg-stone-200/80 transition-colors backdrop-blur-sm"
                              >
                                 {/* 加上可点击的样式、onClick 事件和 SortArrow 组件 */}
                                 <div 
-                                  className="flex-1 flex items-center cursor-pointer" 
+                                  className="flex-1 flex items-center cursor-pointer min-w-0" 
                                   onClick={() => handleSort(field.id as SortKey)}
                                 >
-                                   {field.label}
-                                   <SortArrow column={field.id as SortKey} />
+                                   <span className="truncate">{field.label}</span>
+                                   <div className="shrink-0"><SortArrow column={field.id as SortKey} /></div>
                                 </div>
                                 <div 
                                   className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 z-20"
@@ -1847,7 +1848,7 @@ useEffect(() => {
                                                 <div 
                                                   key={field.id} 
                                                   style={{ width: currentWidth }} 
-                                                  className={`px-2 py-2 flex items-center text-xs text-stone-700 ${isEditing ? 'visible overflow-visible' : 'truncate'}`}
+                                                  className={`shrink-0 px-2 py-2 flex items-center text-xs text-stone-700 ${isEditing ? 'visible overflow-visible' : 'truncate'}`}
                                                 >
                                                    {renderFieldValue(note, field, isEditing)}
                                                 </div>

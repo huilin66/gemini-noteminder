@@ -281,7 +281,7 @@ export const translations = {
       remark: "主要改动",
       duration: "持续时间",
       server: "服务器",
-      resultPath: "结果文件路径",
+      resultPath: "结果文件",
       accuracy: "精度"
     },
     toolbar: {
