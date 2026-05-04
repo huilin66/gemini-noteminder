@@ -1,7 +1,7 @@
 
 import React, { useRef } from 'react';
 import { Image as ImageIcon } from 'lucide-react';
-import { NoteStyleVariant, NoteTexture, NoteDecorationPosition, Language, NoteTheme } from '../types';
+import { NoteStyleVariant, NoteTexture, NoteDecorationPosition, Language, NoteTheme } from '../utils/types';
 import { translations } from '../utils/i18n';
 
 interface NoteStyleControlsProps {

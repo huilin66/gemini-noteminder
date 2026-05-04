@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { AIParsedNote, LLMConfig } from "../types";
+import { AIParsedNote, LLMConfig } from "./types";
 
 const DEFAULT_PROMPT = `Analyze the following user input for a todo list item. Extract the core task content, any specific event time mentioned, the location, and a suggested urgency status.
 User Input: "{{INPUT}}"

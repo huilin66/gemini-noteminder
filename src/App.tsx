@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Notebook from './components/Notebook';
 import StickyNote from './components/StickyNote';
 import BookshelfBackground from './components/BookshelfBackground';
-import { Note, NoteStatus, NoteImportance, Group, ThemeConfig, ViewState, Language, NotePreset, SmartBook, LLMConfig } from './types';
+import { Note, NoteStatus, NoteImportance, Group, ThemeConfig, ViewState, Language, NotePreset, SmartBook, LLMConfig } from './utils/types';
 import { Bell, Clock, X, ArrowLeft } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 

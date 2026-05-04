@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Note, NoteStatus, NoteImportance, NoteStyleVariant, NoteTexture, Language, NoteDecorationPosition, NotePreset } from '../types';
+import { Note, NoteStatus, NoteImportance, NoteStyleVariant, NoteTexture, Language, NoteDecorationPosition, NotePreset } from '../utils/types';
 import { X, MapPin, Clock, GripHorizontal, Bell, CheckCircle, PlayCircle, Settings, Pin, Paperclip, Flower, Leaf, PieChart, Ban } from 'lucide-react';
 import { translations } from '../utils/i18n';
 import NoteStyleControls from './NoteStyleControls';

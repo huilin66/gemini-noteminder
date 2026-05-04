@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../types';
+import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../utils/types';
 import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock, ChevronDown, ChevronRight, EyeOff, Hourglass, ChevronsDown, ChevronsRight } from 'lucide-react';
-import { parseNoteWithAI } from '../services/geminiService';
+import { parseNoteWithAI } from '../utils/geminiService';
 import { v4 as uuidv4 } from 'uuid';
 import { translations } from '../utils/i18n';
 import TimePicker from './TimePicker';

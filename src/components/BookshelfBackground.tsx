@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Edit2, Trash2, X, Check, Globe, ExternalLink, Plus } from 'lucide-react';
-import { SmartBook, Language } from '../types';
+import { SmartBook, Language } from '../utils/types';
 import { translations } from '../utils/i18n';
 
 interface BookshelfBackgroundProps {
