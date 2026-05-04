@@ -33,6 +33,8 @@ export interface ThemeConfig {
 export interface Group {
   id: string;
   name: string;
+  type?: 'standard' | 'ai_record'; 
+  schema?: RecordFieldSchema[];
 }
 
 export type NoteStyleVariant = 'tape' | 'pin' | 'clip' | 'minimal' | 'spiral' | 'washi' | 'torn' | 'flower' | 'leaf';
@@ -47,6 +49,7 @@ export interface NotePreset {
   textureVariant: NoteTexture;
   decorationPosition: NoteDecorationPosition;
   isDefault?: boolean;
+  recordData?: Record<string, any>;
 }
 
 export interface Note {
@@ -74,6 +77,9 @@ export interface Note {
   isTop?: boolean; // New: Pin to top in list
   position: { x: number; y: number };
   zIndex: number;
+
+  noteType?: 'task' | 'record';
+  recordData?: Record<string, any>;
 }
 
 export interface AIParsedNote {
@@ -122,4 +128,16 @@ export interface LLMConfig {
   model: string;
   baseUrl?: string;
   customPrompt?: string;
+}
+
+export type FieldType = 'text' | 'number' | 'date' | 'status' | 'link';
+export interface RecordFieldSchema {
+  id: string;          // 字段唯一ID，如 'config_file'
+  label: string;       // 显示名称，如 '配置文件'
+  type: FieldType;     // 字段类型
+  isVisible: boolean;  // 是否在表格中显示
+  order: number;       // 显示顺序
+  width: number;       // 列宽
+  defaultValue?: any;  // 用户设置的默认值
+  isSystem?: boolean;  // 是否为系统自带的不可删除字段（如ID、添加时间）
 }

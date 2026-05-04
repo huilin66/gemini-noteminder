@@ -17,7 +17,22 @@ export const translations = {
       title: "Your Notebooks",
       newGroup: "New Notebook",
       deleteConfirmTitle: "Delete Notebook",
-      deleteConfirmMsg: "Are you sure you want to delete this notebook and ALL its events? This cannot be undone."
+      deleteConfirmMsg: "Are you sure you want to delete this notebook and ALL its events? This cannot be undone.",
+      convertToRecord: "Convert to Record Note",
+      convertConfirmTitle: "Convert Notebook Type",
+      convertConfirmMsg: "Are you sure you want to convert this to an AI Record notebook? This will change the data table structure and is irreversible."
+    },
+    record: {
+      id: "ID",
+      refId: "Ref ID",
+      modelName: "Model",
+      dataset: "Dataset",
+      configFile: "Config File",
+      remark: "Remark",
+      duration: "Duration",
+      server: "Server",
+      resultPath: "Result Path",
+      accuracy: "Accuracy (mAP/Acc)"
     },
     toolbar: {
       sortingActive: "Sorting active",
@@ -252,7 +267,22 @@ export const translations = {
       title: "我的笔记本",
       newGroup: "新建笔记本",
       deleteConfirmTitle: "删除笔记本",
-      deleteConfirmMsg: "确定要删除此笔记本及其所有事件吗？此操作无法撤销。"
+      deleteConfirmMsg: "确定要删除此笔记本及其所有事件吗？此操作无法撤销。",
+      convertToRecord: "转换为记录笔记",
+      convertConfirmTitle: "转换笔记本类型",
+      convertConfirmMsg: "确定要将此笔记本转换为【记录笔记】吗？此操作将改变数据表结构，且不可逆。"
+    },
+    record: {
+      id: "ID",
+      refId: "参考ID",
+      modelName: "模型",
+      dataset: "数据集",
+      configFile: "配置文件",
+      remark: "主要改动",
+      duration: "持续时间",
+      server: "服务器",
+      resultPath: "结果文件路径",
+      accuracy: "精度"
     },
     toolbar: {
       sortingActive: "正在排序",

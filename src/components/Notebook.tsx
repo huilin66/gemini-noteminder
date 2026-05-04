@@ -1,16 +1,82 @@
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../utils/types';
-import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, Layout, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Palette, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock, ChevronDown, ChevronRight, EyeOff, Hourglass, ChevronsDown, ChevronsRight } from 'lucide-react';
+import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, AlarmClock, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Columns, ArrowUp, ArrowDown, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock, ChevronDown, ChevronRight, EyeOff, LineChart, ChevronsDown, ChevronsRight } from 'lucide-react';
 import { parseNoteWithAI } from '../utils/geminiService';
-import { v4 as uuidv4 } from 'uuid';
 import { translations } from '../utils/i18n';
 import TimePicker from './TimePicker';
 import NoteStyleControls from './NoteStyleControls';
-import StickyNote from './StickyNote';
+import { RecordFieldSchema } from '../utils/types';
+
 
 // Use global XLSX variable from the CDN script
 declare const XLSX: any;
+
+
+interface AutocompleteInputProps {
+  value: string;
+  onChange: (val: string) => void;
+  options: string[];
+  placeholder?: string;
+}
+
+const AutocompleteInput: React.FC<AutocompleteInputProps> = ({ value, onChange, options, placeholder }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // 根据当前输入值过滤选项
+  const filteredOptions = options.filter(opt => 
+    opt.toLowerCase().includes((value || '').toLowerCase())
+  );
+
+  // 处理点击外部关闭下拉框
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  return (
+    <div className="relative w-full" ref={wrapperRef}>
+      <input 
+        className="w-full text-xs p-1.5 border rounded-md placeholder:text-stone-300 focus:ring-1 focus:ring-blue-500 border-stone-200 outline-none bg-white text-stone-700 transition-shadow"
+        placeholder={placeholder}
+        value={value}
+        onChange={e => {
+          onChange(e.target.value);
+          setIsOpen(true);
+        }}
+        onFocus={() => setIsOpen(true)}
+      />
+      
+      {/* 纯 Tailwind 打造的下拉列表，完美匹配你的 UI 风格 */}
+      {isOpen && filteredOptions.length > 0 && (
+        <div className="absolute z-[100] min-w-full min-w-[160px] max-w-[400px] mt-1 bg-white/95 backdrop-blur-md border border-stone-200 rounded-lg shadow-xl max-h-40 overflow-y-auto notebook-scroll">
+          {filteredOptions.map((opt, idx) => (
+            <div 
+              key={`${opt}-${idx}`}
+              // 使用 onMouseDown 而不是 onClick，防止触发 input 的 onBlur 导致列表提前消失
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(opt);
+                setIsOpen(false);
+              }}
+              className="px-3 py-2 text-xs text-stone-700 hover:bg-blue-50 hover:text-blue-700 cursor-pointer transition-colors border-b border-stone-50 last:border-0 truncate"
+              title={opt}
+            >
+              {opt}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface NotebookProps {
   groups: Group[];
@@ -83,6 +149,8 @@ interface FilterConfig {
     start: string; 
     end: string;   
   };
+  model: string[];
+  dataset: string[];
 }
 
 interface ModalConfig {
@@ -158,11 +226,15 @@ const Notebook: React.FC<NotebookProps> = ({
   const [newPresetName, setNewPresetName] = useState('');
 
   const [showFilters, setShowFilters] = useState(false);
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [newColumnName, setNewColumnName] = useState('');
   const [filterConfig, setFilterConfig] = useState<FilterConfig>({
       status: [],
       importance: [],
       dateField: 'startTime',
-      dateRange: { start: '', end: '' }
+      dateRange: { start: '', end: '' },
+      model: [],
+      dataset: []
   });
   
   const [showExportRecords, setShowExportRecords] = useState(false);
@@ -213,6 +285,8 @@ const Notebook: React.FC<NotebookProps> = ({
   const [resizingCol, setResizingCol] = useState<keyof ColumnWidths | null>(null);
   const resizeStartX = useRef<number>(0);
   const resizeStartWidth = useRef<number>(0);
+  const [dynamicColWidths, setDynamicColWidths] = useState<Record<string, number>>({});
+  const [resizingDynamicCol, setResizingDynamicCol] = useState<string | null>(null);
 
   const notebookBgImageInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
@@ -231,6 +305,7 @@ const Notebook: React.FC<NotebookProps> = ({
     importance: NoteImportance;
     isReminderOn: boolean;
     reminderTime: string;
+    recordData?: Record<string, any>;
   }>({
     content: '',
     createdAt: '',
@@ -241,7 +316,8 @@ const Notebook: React.FC<NotebookProps> = ({
     status: NoteStatus.TODO,
     importance: NoteImportance.MEDIUM,
     isReminderOn: false,
-    reminderTime: ''
+    reminderTime: '',
+    recordData: {}
   });
   
   const dragItem = useRef<number | null>(null);
@@ -252,6 +328,7 @@ const Notebook: React.FC<NotebookProps> = ({
 
   const activeGroup = useMemo(() => groups.find(g => g.id === activeGroupId), [groups, activeGroupId]);
   const currentGroupNotes = useMemo(() => notes.filter(n => n.groupId === activeGroupId), [notes, activeGroupId]);
+
 
   const sortedNotes = useMemo(() => {
     let filtered = [...currentGroupNotes];
@@ -292,6 +369,12 @@ const Notebook: React.FC<NotebookProps> = ({
                 return val ? val < endTs : false;
             });
         }
+        if (filterConfig.model.length > 0) {
+            filtered = filtered.filter(n => filterConfig.model.includes(n.recordData?.model || ''));
+        }
+        if (filterConfig.dataset.length > 0) {
+            filtered = filtered.filter(n => filterConfig.dataset.includes(n.recordData?.dataset || ''));
+        }
     }
 
     if (hideCompleted) {
@@ -317,8 +400,8 @@ const Notebook: React.FC<NotebookProps> = ({
           return b.createdAt - a.createdAt;
       }
       
-      let valA: any = a[sortConfig.key];
-      let valB: any = b[sortConfig.key];
+      let valA: any = a.recordData && a.recordData[sortConfig.key] !== undefined ? a.recordData[sortConfig.key] : a[sortConfig.key as keyof Note];
+      let valB: any = b.recordData && b.recordData[sortConfig.key] !== undefined ? b.recordData[sortConfig.key] : b[sortConfig.key as keyof Note];
 
       if (sortConfig.key === 'reminderTime') {
         valA = a.isReminderOn ? (a.reminderTime || 0) : -1;
@@ -452,7 +535,8 @@ const Notebook: React.FC<NotebookProps> = ({
       status: note.status,
       importance: note.importance || NoteImportance.MEDIUM,
       isReminderOn: note.isReminderOn,
-      reminderTime: toDateTimeLocal(note.reminderTime)
+      reminderTime: toDateTimeLocal(note.reminderTime),
+      recordData: note.recordData || {}
     });
   };
 
@@ -523,7 +607,8 @@ const Notebook: React.FC<NotebookProps> = ({
       status: formData.status,
       importance: formData.importance,
       isReminderOn: formData.isReminderOn,
-      reminderTime: remTs
+      reminderTime: remTs,
+      recordData: formData.recordData
     });
     setEditingId(null);
   };
@@ -547,7 +632,7 @@ const Notebook: React.FC<NotebookProps> = ({
 
   const createEmptyEvent = () => {
     const now = Date.now();
-    const id = uuidv4();
+    const id = generateShortId();
     
     const defaultPreset = presets.find(p => p.isDefault) || {
         theme: { type: 'color', value: '#fef3c7', textColor: '#000000', opacity: 1 } as NoteTheme,
@@ -589,13 +674,72 @@ const Notebook: React.FC<NotebookProps> = ({
           return;
       }
       const newPreset: NotePreset = {
-          id: uuidv4(),
+          id: generateShortId(),
           name: newPresetName,
           ...draftPreset,
           isDefault: presets.length === 0
       };
       setPresets([...presets, newPreset]);
       setNewPresetName('');
+  };
+
+  // ==========================================
+  // [新增] 动态列管理逻辑
+  // ==========================================
+  
+  // 1. 切换列的显示/隐藏
+  const toggleColumnVisibility = (fieldId: string) => {
+    if (!activeGroup || !activeGroup.schema) return;
+    const newSchema = activeGroup.schema.map(f => 
+      f.id === fieldId ? { ...f, isVisible: !f.isVisible } : f
+    );
+    onUpdateGroup({ ...activeGroup, schema: newSchema });
+  };
+
+  // 2. 调整列的顺序 (上移/下移)
+  const handleMoveColumn = (index: number, direction: 'up' | 'down') => {
+    if (!activeGroup || !activeGroup.schema) return;
+    // 先按当前的 order 排好序
+    const sorted = [...activeGroup.schema].sort((a,b) => a.order - b.order);
+    
+    if (direction === 'up' && index > 0) {
+        const temp = sorted[index].order;
+        sorted[index].order = sorted[index-1].order;
+        sorted[index-1].order = temp;
+    } else if (direction === 'down' && index < sorted.length - 1) {
+        const temp = sorted[index].order;
+        sorted[index].order = sorted[index+1].order;
+        sorted[index+1].order = temp;
+    }
+    // 更新保存
+    onUpdateGroup({ ...activeGroup, schema: sorted });
+  };
+
+  // 3. 新增自定义列
+  const handleAddCustomColumn = () => {
+    if (!activeGroup || !activeGroup.schema || !newColumnName.trim()) return;
+    const maxOrder = Math.max(...activeGroup.schema.map(f => f.order), 0);
+    
+    const newField: RecordFieldSchema = {
+        id: `custom_${generateShortId()}`, // 加上 custom_ 前缀方便识别
+        label: newColumnName.trim(),
+        type: 'text',
+        isVisible: true,
+        order: maxOrder + 1,
+        width: 120,
+        isSystem: false // 标记为非系统列，数据会存入 recordData
+    };
+    onUpdateGroup({ ...activeGroup, schema: [...activeGroup.schema, newField] });
+    setNewColumnName('');
+  };
+
+  // 4. 删除自定义列
+  const handleDeleteCustomColumn = (fieldId: string) => {
+    if (!activeGroup || !activeGroup.schema) return;
+    onUpdateGroup({
+        ...activeGroup,
+        schema: activeGroup.schema.filter(f => f.id !== fieldId)
+    });
   };
 
   const loadPresetIntoDraft = (preset: NotePreset) => {
@@ -842,7 +986,7 @@ const Notebook: React.FC<NotebookProps> = ({
         if (!content) continue;
         const now = Date.now();
         newNotes.push({
-          id: uuidv4(),
+          id: generateShortId(),
           groupId: activeGroupId,
           content: content,
           createdAt: cols[2] ? new Date(clean(cols[2])).getTime() : now,
@@ -884,14 +1028,14 @@ const Notebook: React.FC<NotebookProps> = ({
           const importedGroups: Group[] = [];
           const importedNotes: Note[] = [];
           workbook.SheetNames.forEach((sheetName: string) => {
-              const newGroupId = uuidv4();
+              const newGroupId = generateShortId();
               importedGroups.push({ id: newGroupId, name: sheetName });
               const worksheet = workbook.Sheets[sheetName];
               const json = XLSX.utils.sheet_to_json(worksheet);
               json.forEach((row: any) => {
                   const now = Date.now();
                   importedNotes.push({
-                      id: uuidv4(),
+                      id: generateShortId(),
                       groupId: newGroupId,
                       content: row.Content || 'Empty',
                       createdAt: row.Added ? new Date(row.Added).getTime() : now,
@@ -921,7 +1065,12 @@ const Notebook: React.FC<NotebookProps> = ({
       reader.readAsBinaryString(file);
       if (xlsxInputRef.current) xlsxInputRef.current.value = '';
   };
-
+  const handleDynamicMouseDownResize = (e: React.MouseEvent, colId: string, initialWidth: number) => {
+    setResizingDynamicCol(colId);
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = dynamicColWidths[colId] || initialWidth;
+    document.body.style.cursor = 'col-resize';
+  };
   const handleOpenFolder = async () => {
     if ('showDirectoryPicker' in window) {
       try {
@@ -957,6 +1106,33 @@ const Notebook: React.FC<NotebookProps> = ({
     document.body.style.cursor = 'ew-resize';
   };
 
+useEffect(() => {
+    if (!editingId) return;
+
+    const handleGlobalMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      
+      // 1. 防弹级检测：使用原生的 closest 查找，点击元素及其祖先节点中是否包含 data-editing-row="true"
+      if (target.closest('[data-editing-row="true"]')) {
+        return;
+      }
+      
+      // 2. 检查点击是否在时间选择器的弹窗内部
+      if (target.closest('.time-picker-portal')) {
+        return;
+      }
+
+      // 3. 真正点击了外部区域，触发保存
+      saveEditing(editingId);
+    };
+
+    document.addEventListener('mousedown', handleGlobalMouseDown, true);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleGlobalMouseDown, true);
+    };
+  }, [editingId, formData, notes]);
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (resizingCol) {
@@ -969,6 +1145,11 @@ const Notebook: React.FC<NotebookProps> = ({
          const newWidth = Math.max(150, Math.min(600, resizeStartWidth.current + diff));
          setGroupsPanelWidth(newWidth);
       }
+      if (resizingDynamicCol) {
+         const diff = e.clientX - resizeStartX.current;
+         const newWidth = Math.max(50, resizeStartWidth.current + diff);
+         setDynamicColWidths(prev => ({ ...prev, [resizingDynamicCol]: newWidth }));
+      }
     };
     const handleMouseUp = () => {
       if (resizingCol) {
@@ -979,8 +1160,12 @@ const Notebook: React.FC<NotebookProps> = ({
           setIsResizingGroups(false);
           document.body.style.cursor = 'default';
       }
+      if (resizingDynamicCol) {
+          setResizingDynamicCol(null);
+          document.body.style.cursor = 'default';
+      }
     };
-    if (resizingCol || isResizingGroups) {
+    if (resizingCol || isResizingGroups || resizingDynamicCol) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     }
@@ -988,7 +1173,7 @@ const Notebook: React.FC<NotebookProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizingCol, isResizingGroups]);
+  }, [resizingCol, isResizingGroups, resizingDynamicCol, dynamicColWidths]);
 
   const getContainerStyle = (theme: ThemeConfig) => {
       return {
@@ -1107,12 +1292,262 @@ const Notebook: React.FC<NotebookProps> = ({
           return { ...prev, status: newStatus };
       });
   };
-
+  const toggleModelFilter = (m: string) => {
+      setFilterConfig(prev => ({ 
+          ...prev, 
+          model: prev.model.includes(m) ? prev.model.filter(x => x !== m) : [...prev.model, m] 
+      }));
+  };
+  const toggleDatasetFilter = (d: string) => {
+      setFilterConfig(prev => ({ 
+          ...prev, 
+          dataset: prev.dataset.includes(d) ? prev.dataset.filter(x => x !== d) : [...prev.dataset, d] 
+      }));
+  };
   const toggleImportanceFilter = (imp: NoteImportance) => {
       setFilterConfig(prev => {
           const newImp = prev.importance.includes(imp) ? prev.importance.filter(i => i !== imp) : [...prev.importance, imp];
           return { ...prev, importance: newImp };
       });
+  };
+  const generateShortId = () => {
+    return Math.random().toString(36).substring(2, 8);
+  };
+  const getInitialAiRecordSchema = (): RecordFieldSchema[] => [
+      { id: 'train_id', label: t.record.id, type: 'text', isVisible: true, order: 1, width: 80, isSystem: true },
+      { id: 'ref_id', label: t.record.refId, type: 'text', isVisible: true, order: 2, width: 80 },
+      { id: 'model', label: t.record.modelName, type: 'text', isVisible: true, order: 3, width: 120 },
+      { id: 'dataset', label: t.record.dataset, type: 'text', isVisible: true, order: 4, width: 120 },
+      { id: 'config_file', label: t.record.configFile, type: 'text', isVisible: true, order: 4, width: 150 },
+      { id: 'remark', label: t.record.remark, type: 'text', isVisible: true, order: 4, width: 100 },
+      { id: 'createdAt', label: t.table.added, type: 'date', isVisible: true, order: 5, width: 100, isSystem: true },
+      { id: 'startTime', label: t.table.start, type: 'date', isVisible: true, order: 6, width: 100, isSystem: true },
+      { id: 'endTime', label: t.table.end, type: 'date', isVisible: true, order: 7, width: 100, isSystem: true },
+      { id: 'duration', label: t.record.duration, type: 'text', isVisible: true, order: 8, width: 90, isSystem: true },
+      { id: 'server', label: t.record.server, type: 'text', isVisible: true, order: 9, width: 100 },
+      { id: 'result_path', label: t.record.resultPath, type: 'link', isVisible: true, order: 10, width: 150 },
+      { id: 'importance', label: t.table.importance, type: 'status', isVisible: true, order: 11, width: 80, isSystem: true },
+      { id: 'status', label: t.table.status, type: 'status', isVisible: true, order: 12, width: 80, isSystem: true },
+      { id: 'reminder', label: t.table.reminder, type: 'date', isVisible: true, order: 13, width: 100, isSystem: true },
+      { id: 'accuracy', label: t.record.accuracy, type: 'number', isVisible: true, order: 14, width: 100 },
+    ];
+  const handleConvertRequest = () => {
+    confirmAction(
+      t.groups.convertConfirmTitle,
+      t.groups.convertConfirmMsg,
+      () => {
+        if (activeGroup) {
+          onUpdateGroup({
+            ...activeGroup,
+            type: 'ai_record',
+            schema: getInitialAiRecordSchema() // 使用带翻译的 Schema
+          });
+        }
+      },
+      'warning'
+    );
+  };
+
+  const getAiRecordTableWidth = () => {
+    if (!activeGroup?.schema) return '100%';
+    const totalWidth = activeGroup.schema
+      .filter(f => f.isVisible)
+      .reduce((acc, f) => acc + (dynamicColWidths[f.id] || f.width), 0);
+    return totalWidth + 140 + 40; // 加上操作列(140)和Padding(40)
+  };
+  const getImportanceLabel = (imp: NoteImportance) => {
+      switch (imp) {
+        case NoteImportance.HIGH: return t.importance.high;
+        case NoteImportance.MEDIUM: return t.importance.medium;
+        case NoteImportance.LOW: return t.importance.low;
+        default: return '';
+      }
+    };
+  const getExistingTrainIds = () => {
+    return currentGroupNotes
+      // 过滤掉当前正在编辑的笔记自身，防止自己参考自己
+      .filter(n => n.id !== editingId) 
+      .map(n => n.id.split('-')[0]);
+  };
+  const getFieldHistory = (fieldId: string) => {
+    const historySet = new Set<string>();
+    // 遍历所有笔记，提取该字段非空的值
+    notes.forEach(n => {
+      const val = n.recordData?.[fieldId];
+      if (val && typeof val === 'string' && val.trim() !== '') {
+        historySet.add(val);
+      }
+    });
+    return Array.from(historySet);
+  };
+  const renderFieldValue = (note: Note, field: RecordFieldSchema, isEditing: boolean) => {
+    // --------------------------------------------------
+    // A: 编辑模式下的系统保留字段 (套用 Standard 编辑控件)
+    // --------------------------------------------------
+    if (isEditing && field.isSystem) {
+      switch (field.id) {
+        case 'createdAt':
+          return (
+            <div className="flex items-center gap-1">
+              <TimePicker value={formData.createdAt} onChange={(v) => setFormData({...formData, createdAt: v})} />
+            </div>
+          );
+        case 'startTime':
+          return (
+            <div className="flex items-center gap-1">
+              <TimePicker value={formData.startTime} onChange={handleStartTimeChange} />
+            </div>
+          );
+        case 'endTime':
+          return (
+            <div className="flex items-center gap-1">
+              <TimePicker value={formData.endTime} onChange={handleEndTimeChange} />
+            </div>
+          );
+        case 'duration':
+          // 持续时间是特殊的，在 Standard 模式中由 formData 联动计算
+          return (
+            <div className="flex flex-col gap-1 w-full max-w-[80px]">
+                <div className="flex items-center gap-1">
+                    <input type="number" className="w-full text-xs p-1 border rounded" placeholder="0" value={formData.duration < 60 * 24 ? (formData.duration / 60).toFixed(1).replace(/\.0$/, '') : ''} onChange={e => handleDurationChange(parseFloat(e.target.value) || 0, 'hour')} />
+                    <span className="text-[10px] text-stone-400 font-bold w-3">h</span>
+                </div>
+                <div className="flex items-center gap-1">
+                    <input type="number" className="w-full text-xs p-1 border rounded" placeholder="0" value={formData.duration >= 60 * 24 ? (formData.duration / (60 * 24)).toFixed(1).replace(/\.0$/, '') : ''} onChange={e => handleDurationChange(parseFloat(e.target.value) || 0, 'day')} />
+                    <span className="text-[10px] text-stone-400 font-bold w-3">d</span>
+                </div>
+            </div>
+          );
+        case 'importance':
+          return (
+            <select className="w-full text-xs p-1 border rounded" value={formData.importance} onChange={e => setFormData({...formData, importance: e.target.value as NoteImportance})}>
+              <option value={NoteImportance.HIGH}>{t.importance.high}</option>
+              <option value={NoteImportance.MEDIUM}>{t.importance.medium}</option>
+              <option value={NoteImportance.LOW}>{t.importance.low}</option>
+            </select>
+          );
+        case 'status':
+          return (
+            <select className="w-full text-xs p-1 border rounded" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as NoteStatus})}>
+              {Object.values(NoteStatus).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          );
+        case 'reminder':
+          return (
+            <div className="flex flex-col gap-1 w-full">
+                <button onClick={() => setFormData(prev => {
+                    const isTurningOn = !prev.isReminderOn;
+                    let newReminderTime = prev.reminderTime;
+                    if (isTurningOn && !newReminderTime) {
+                        const baseTime = prev.startTime ? new Date(prev.startTime).getTime() : Date.now();
+                        newReminderTime = toDateTimeLocal(baseTime - 15 * 60000);
+                    }
+                    return { ...prev, isReminderOn: isTurningOn, reminderTime: newReminderTime };
+                })} className={`w-full text-[10px] p-1 rounded border ${formData.isReminderOn ? 'bg-blue-100 text-blue-700' : 'bg-stone-100'}`}>
+                    {formData.isReminderOn ? 'ON' : 'OFF'}
+                </button>
+                {formData.isReminderOn && <TimePicker value={formData.reminderTime} onChange={(v) => setFormData({...formData, reminderTime: v})} />}
+            </div>
+          );
+      }
+    }
+
+    // --------------------------------------------------
+    // B: 编辑模式下的自定义记录字段 (recordData)
+    // --------------------------------------------------
+    if (isEditing && !field.isSystem) {
+      const val = formData.recordData?.[field.id] ?? note.recordData?.[field.id] ?? field.defaultValue ?? '';
+      
+      let historyOptions: string[] = [];
+
+      // 获取历史记录数据
+      if (field.id === 'ref_id') {
+        historyOptions = getExistingTrainIds();
+      } else if (['model', 'dataset', 'config_file', 'server', 'result_path'].includes(field.id)) {
+        historyOptions = getFieldHistory(field.id);
+      }
+
+      // 如果有历史记录，渲染自定义的 Autocomplete 组件
+      if (historyOptions.length > 0) {
+        return (
+          <AutocompleteInput 
+            value={val}
+            options={historyOptions}
+            placeholder={field.label}
+            onChange={(newVal) => {
+              setFormData(prev => ({
+                ...prev,
+                recordData: { ...prev.recordData, [field.id]: newVal }
+              }));
+            }}
+          />
+        );
+      }
+
+      // 如果没有历史记录（或者不需要历史记录的字段），退回渲染普通 Input
+      return (
+        <input 
+          className="w-full text-xs p-1.5 border rounded-md placeholder:text-stone-300 focus:ring-1 focus:ring-blue-500 border-stone-200 outline-none bg-white text-stone-700"
+          placeholder={field.label}
+          value={val}
+          onChange={e => {
+            setFormData(prev => ({
+              ...prev,
+              recordData: { ...prev.recordData, [field.id]: e.target.value }
+            }));
+          }}
+        />
+      );
+    }
+    // --------------------------------------------------
+    // C: 显示模式下的系统保留字段 (套用 Standard 展示样式)
+    // --------------------------------------------------
+    if (!isEditing && field.isSystem) {
+      switch (field.id) {
+        case 'train_id': 
+          return <span className="text-[10px] text-stone-400 font-mono font-bold">{note.id}</span>;
+        case 'createdAt': 
+          return <span className="text-xs text-stone-500">{formatDate(note.createdAt)}</span>;
+        case 'startTime': 
+          return <span className="text-xs text-stone-800 font-mono">{note.startTime ? formatDate(note.startTime) : '-'}</span>;
+        case 'endTime': 
+          return <span className="text-xs text-stone-400 font-mono">{note.endTime ? formatDate(note.endTime) : '-'}</span>;
+        case 'duration': 
+          return <span className="text-xs text-stone-500 font-mono">{note.startTime && note.endTime ? formatDuration(Math.round((note.endTime - note.startTime) / 60000)) : '-'}</span>;
+        case 'importance': 
+          return (
+            <span className={`text-[9px] px-1.5 py-0.5 rounded border font-medium ${note.importance === NoteImportance.HIGH ? 'bg-red-50 text-red-600 border-red-200' : note.importance === NoteImportance.LOW ? 'bg-green-50 text-green-600 border-green-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}> 
+              {getImportanceLabel(note.importance)} 
+            </span>
+          );
+        case 'status': 
+          return (
+            <span className={`text-[9px] font-bold uppercase tracking-wider ${note.status === NoteStatus.TODO ? 'text-stone-400' : note.status === NoteStatus.IN_PROGRESS ? 'text-blue-500' : note.status === NoteStatus.PARTIAL ? 'text-orange-500' : note.status === NoteStatus.CANCELLED ? 'text-stone-300' : 'text-green-500'}`}> 
+              {note.status} 
+            </span>
+          );
+        case 'reminder': 
+          return (
+            <span className="text-[10px] text-stone-400 font-mono">
+              {note.isReminderOn && note.reminderTime ? ( <span className="text-blue-600 flex items-center gap-1"><Bell size={10} /> {formatDate(note.reminderTime)}</span> ) : '-'}
+            </span>
+          );
+        default: break;
+      }
+    }
+
+    // --------------------------------------------------
+    // D: 显示模式下的自定义记录字段
+    // --------------------------------------------------
+    const displayVal = note.recordData?.[field.id] ?? field.defaultValue ?? '-';
+    
+    if (field.type === 'link') {
+      return displayVal !== '-' ? <a href={displayVal} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{displayVal}</a> : '-';
+    }
+    if (field.type === 'number') {
+      return <span className="font-mono text-blue-600 font-bold">{displayVal}</span>;
+    }
+    return displayVal;
   };
 
   return (
@@ -1163,10 +1598,22 @@ const Notebook: React.FC<NotebookProps> = ({
                     className={`p-3 mb-2 rounded-xl cursor-pointer text-sm font-medium transition-all flex items-center justify-between group/item border ${dragOverGroupId === group.id ? 'bg-blue-600 text-white shadow-xl scale-105 border-blue-400' : (activeGroupId === group.id ? 'bg-stone-800 text-white shadow-md border-stone-600' : 'hover:bg-black/5 text-stone-700 hover:border-black/10 border-transparent')}`}
                   >
                   <div className="flex items-center gap-2 overflow-hidden flex-1">
-                      <div className="cursor-grab active:cursor-grabbing text-stone-400 opacity-0 group-hover/item:opacity-100 transition-opacity"><GripVertical size={12} /></div>
+                      <div className="cursor-grab active:cursor-grabbing text-stone-400 opacity-0 group-hover/item:opacity-100 transition-opacity shrink-0">
+                          <GripVertical size={12} />
+                      </div>
+                      
                       {editingGroupId === group.id ? (
                           <input autoFocus className="w-full bg-white text-black rounded px-1 outline-none" value={tempGroupName} onChange={(e) => setTempGroupName(e.target.value)} onBlur={() => { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }} onKeyDown={(e) => { if(e.key === 'Enter') { onUpdateGroup({ ...group, name: tempGroupName }); setEditingGroupId(null); }}} />
-                      ) : ( <span className="truncate">{group.name}</span> )}
+                      ) : ( 
+                          <div className="flex items-center gap-1.5 overflow-hidden">
+                              {group.type === 'ai_record' ? (
+                                  <LineChart size={14} className="text-indigo-500 shrink-0" title={t.groups.convertToRecord || "Record Notebook"} />
+                              ) : (
+                                  <AlarmClock size={14} className="text-stone-500 shrink-0" />
+                              )}
+                              <span className="truncate">{group.name}</span>
+                          </div>
+                      )}
                   </div>
                   {groups.length > 1 && (
                       <button onClick={(e) => { e.stopPropagation(); requestDeleteGroup(group.id, group.name); }} className="opacity-0 group-hover/item:opacity-100 hover:text-red-400 p-1 transition-opacity shrink-0"><X size={12} /></button>
@@ -1202,6 +1649,16 @@ const Notebook: React.FC<NotebookProps> = ({
                           ) : (
                               <h1 className="text-xl font-bold text-stone-800 cursor-text hover:bg-black/5 rounded px-1 transition-colors" onDoubleClick={handleTitleDoubleClick}>{activeGroup?.name || "Notebook"}</h1>
                           )}
+                          {currentGroupNotes.length === 0 && (!activeGroup?.type || activeGroup?.type === 'standard') && (
+                              <button 
+                                  onClick={handleConvertRequest}
+                                  className="ml-2 flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-100 hover:text-indigo-700 transition-all text-xs font-bold shadow-sm active:scale-95"
+                                  title={t.groups.convertToRecord}
+                              >
+                                  <Cpu size={14} />
+                                  <span>{t.groups.convertToRecord}</span>
+                              </button>
+                          )}
                       </div>
                       <p className="text-[10px] text-stone-500 ml-8">
                          {showTodayOnly ? <span className="text-blue-600 font-bold flex items-center gap-1"><Calendar size={10}/> {t.sidebar.today}</span> : sortConfig ? t.toolbar.sortingActive : t.toolbar.dragToReorder}
@@ -1219,7 +1676,16 @@ const Notebook: React.FC<NotebookProps> = ({
                        <button onClick={handleToggleCollapseAll} className="flex items-center gap-1 px-2 py-1.5 bg-white text-stone-700 rounded-lg hover:bg-stone-50 transition-colors text-sm font-medium shadow active:scale-95 transform" title={language === 'zh' ? (allCollapsed ? "展开所有" : "折叠所有") : (allCollapsed ? "Expand All" : "Collapse All")}>{allCollapsed ? <ChevronsRight size={16} /> : <ChevronsDown size={16} />}</button>
 
                        <div className="h-6 w-px bg-stone-300 mx-2"></div>
-
+                       
+                       {activeGroup?.type === 'ai_record' && (
+                          <button 
+                              onClick={() => setShowColumnSettings(true)} 
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow active:scale-95 transform bg-white text-stone-700 hover:bg-stone-50"
+                          >
+                              <Columns size={16} /> 
+                              <span className="hidden sm:inline">{language === 'zh' ? '管理列' : 'Columns'}</span>
+                          </button>
+                      )}
                        <button onClick={() => setShowFilters(!showFilters)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow active:scale-95 transform ${showFilters ? 'bg-blue-600 text-white' : 'bg-white text-stone-700 hover:bg-stone-50'}`}><Filter size={16} /> <span className="hidden sm:inline">{t.toolbar.filter}</span></button>
                        <button onClick={() => setShowExportRecords(true)} className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform"><FileText size={16} /> <span className="hidden sm:inline">{t.dataMenu.exportRecords}</span></button>
                        <button onClick={handleBatchPin} className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium shadow hover:shadow-lg active:scale-95 transform" title={t.toolbar.pinAllTitle}><Layers size={16} /> <span className="hidden sm:inline">{t.toolbar.pinAll}</span></button>
@@ -1272,28 +1738,167 @@ const Notebook: React.FC<NotebookProps> = ({
                                {Object.values(NoteImportance).map(i => ( <button key={i} onClick={() => toggleImportanceFilter(i)} className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.importance.includes(i) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}>{i === NoteImportance.HIGH ? t.importance.high : i === NoteImportance.MEDIUM ? t.importance.medium : t.importance.low}</button> ))}
                            </div>
                        </div>
-                       <button onClick={() => setFilterConfig({ status: [], importance: [], dateField: 'startTime', dateRange: { start: '', end: '' }})} className="ml-auto text-xs text-blue-600 hover:underline">{t.filter.reset}</button>
+                       {activeGroup?.type === 'ai_record' && (
+                           <>
+                               <div className="flex items-center gap-2">
+                                   <span className="text-[10px] font-bold text-stone-400 uppercase">{t.record.model}</span>
+                                   <div className="flex gap-1 flex-wrap">
+                                       {(Array.from(new Set(notes.map(n => n.recordData?.model).filter(Boolean))) as string[]).map(m => (
+                                            <button key={m} onClick={() => toggleModelFilter(m)} className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.model.includes(m) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}>
+                                                {m}
+                                            </button>
+                                        ))}
+                                   </div>
+                               </div>
+                               <div className="flex items-center gap-2">
+                                   <span className="text-[10px] font-bold text-stone-400 uppercase">{t.record.dataset}</span>
+                                   <div className="flex gap-1 flex-wrap">
+                                       {(Array.from(new Set(notes.map(n => n.recordData?.dataset).filter(Boolean))) as string[]).map(d => (
+                                            <button key={d} onClick={() => toggleDatasetFilter(d)} className={`px-2 py-0.5 rounded text-[10px] border ${filterConfig.dataset.includes(d) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-stone-600 border-stone-300 hover:bg-stone-50'}`}>
+                                                {d}
+                                            </button>
+                                        ))}
+                                   </div>
+                               </div>
+                           </>
+                       )}
+                       
+                       <button onClick={() => setFilterConfig({ status: [], importance: [], dateField: 'startTime', dateRange: { start: '', end: '' }, model: [], dataset: [] })} className="ml-auto text-xs text-blue-600 hover:underline">{t.filter.reset}</button>
                    </div>
                )}
             </div>
-
+            
             {/* Table Content */}
             <div className="flex-1 overflow-auto notebook-scroll paper-lines relative z-10">
-               <div style={{ width: (Object.values(colWidths) as number[]).reduce((a, b) => a + b, 0) + 40, minWidth: '100%' }}>
-                  <div className="flex sticky top-0 z-10 shadow-sm h-9 pl-4 border-b border-stone-300/50 bg-white/40 backdrop-blur-md">
-                      <HeaderCell label={t.table.content} colKey="content" />
-                      <HeaderCell label={t.table.added} colKey="createdAt" sortKey="createdAt" />
-                      <HeaderCell label={t.table.start} colKey="startTime" sortKey="startTime" />
-                      <HeaderCell label={t.table.end} colKey="endTime" sortKey="endTime" />
-                      <HeaderCell label={language === 'zh' ? '持续时间' : 'Duration'} colKey="duration" sortKey="duration" />
-                      <HeaderCell label={t.table.location} colKey="location" />
-                      <HeaderCell label={t.table.importance} colKey="importance" sortKey="importance" />
-                      <HeaderCell label={t.table.status} colKey="status" sortKey="status" />
-                      <HeaderCell label={t.table.reminder} colKey="reminder" sortKey="reminderTime" />
-                      <div style={{ width: colWidths.actions }} className="flex items-center justify-end px-2 text-xs font-bold text-stone-600 uppercase bg-stone-50/80 backdrop-blur-sm">{t.table.actions}</div>
+               {/* 2. 多态视图分发 */}
+               {activeGroup?.type === 'ai_record' && activeGroup.schema ? (
+                  
+                  /* ==========================================
+                     A: AI Record 动态数据表视图
+                     ========================================== */
+                  <div style={{ width: getAiRecordTableWidth(), minWidth: '100%' }}>
+                     {/* 动态表头 */}
+                     <div className="flex sticky top-0 z-10 shadow-sm h-9 pl-4 border-b border-stone-300/50 bg-white/40 backdrop-blur-md">
+                        {activeGroup.schema.filter(f => f.isVisible).sort((a,b) => a.order - b.order).map(field => {
+                           const currentWidth = dynamicColWidths[field.id] || field.width;
+                           return (
+                             <div 
+                               key={field.id} 
+                               style={{ width: currentWidth }} 
+                               className="relative flex items-center h-full px-2 text-xs font-bold text-stone-600 uppercase tracking-wider select-none bg-stone-50/80 hover:bg-stone-200/80 transition-colors backdrop-blur-sm"
+                             >
+                                {/* 加上可点击的样式、onClick 事件和 SortArrow 组件 */}
+                                <div 
+                                  className="flex-1 flex items-center cursor-pointer" 
+                                  onClick={() => handleSort(field.id as SortKey)}
+                                >
+                                   {field.label}
+                                   <SortArrow column={field.id as SortKey} />
+                                </div>
+                                <div 
+                                  className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 z-20"
+                                  onMouseDown={(e) => handleDynamicMouseDownResize(e, field.id, field.width)}
+                                ></div>
+                             </div>
+                           )
+                        })}
+                        <div style={{ width: colWidths.actions }} className="flex items-center justify-end px-2 text-xs font-bold text-stone-600 uppercase bg-stone-50/80 backdrop-blur-sm">{t.table.actions}</div>
+                     </div>
+
+                     {/* 动态数据行 (继承按周/月分组和隐藏逻辑) */}
+                     <div className="pb-10 pl-4">
+                        {sortedNotes.length === 0 && <div className="text-center py-12 text-stone-500/50 italic">{t.table.empty}</div>}
+                        
+                        {Object.keys(groupedNotes).sort((a,b) => b.localeCompare(a)).map(groupKey => {
+                           const groupNotes = groupedNotes[groupKey];
+                           const isCollapsed = collapsedGroups.has(groupKey);
+                           const label = getGroupLabel(groupKey);
+                           
+                           return (
+                               <div key={groupKey}>
+                                   {/* 渲染分组标题栏 */}
+                                   {groupingMode !== 'none' && (
+                                       <div 
+                                           className="flex items-center gap-2 py-2 px-2 bg-stone-100/80 hover:bg-stone-200/80 cursor-pointer border-b border-stone-200 backdrop-blur-sm sticky top-9 z-[9]"
+                                           onClick={() => toggleGroupCollapse(groupKey)}
+                                       >
+                                           {isCollapsed ? <ChevronRight size={14} className="text-stone-500" /> : <ChevronDown size={14} className="text-stone-500" />}
+                                           <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">{label}</span>
+                                           <span className="text-[10px] bg-stone-200 text-stone-600 px-1.5 rounded-full">{groupNotes.length}</span>
+                                       </div>
+                                   )}
+                                   
+                                   {/* 渲染该分组下的笔记 */}
+                                   {!isCollapsed && groupNotes.map((note) => {
+                                      const isEditing = editingId === note.id;
+                                      
+                                      return (
+                                        <div 
+                                          key={note.id} 
+                                          data-editing-row={isEditing ? "true" : undefined}
+                                          onDoubleClick={() => startEditing(note)}
+                                          className={`flex items-center border-b border-transparent transition-colors group h-auto min-h-[48px] ${
+                                            isEditing ? 'bg-blue-50/90 border-blue-200 backdrop-blur-sm shadow-sm z-20 relative' : 'hover:border-black/10 hover:bg-black/5'
+                                          }`}
+                                        >
+                                           {activeGroup.schema!.filter(f => f.isVisible).sort((a,b) => a.order - b.order).map(field => {
+                                              const currentWidth = dynamicColWidths[field.id] || field.width;
+                                              return (
+                                                <div 
+                                                  key={field.id} 
+                                                  style={{ width: currentWidth }} 
+                                                  className={`px-2 py-2 flex items-center text-xs text-stone-700 ${isEditing ? 'visible overflow-visible' : 'truncate'}`}
+                                                >
+                                                   {renderFieldValue(note, field, isEditing)}
+                                                </div>
+                                              )
+                                           })}
+
+                                           {/* 操作列 */}
+                                           <div style={{ width: colWidths.actions }} className="px-2 flex justify-end gap-1">
+                                               {isEditing ? (
+                                                   <div className="flex gap-1">
+                                                       <button onClick={() => saveEditing(note.id)} className="p-1.5 bg-green-600 text-white rounded hover:bg-green-700 shadow-sm"><Save size={14} /></button>
+                                                       <button onClick={() => setEditingId(null)} className="p-1.5 bg-stone-200 text-stone-600 rounded hover:bg-stone-300"><X size={14} /></button>
+                                                   </div>
+                                               ) : (
+                                                   <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                       <button onClick={() => requestDeleteNote(note.id)} className="p-1 rounded hover:bg-red-50 text-stone-300 hover:text-red-500" title={t.note.delete}><Trash2 size={14} /></button>
+                                                   </div>
+                                               )}
+                                           </div>
+                                        </div>
+                                      );
+                                   })}
+                               </div>
+                           );
+                        })}
+                     </div>
                   </div>
 
-                  <div className="pb-10 pl-4">
+               ) : (
+
+                  /* ==========================================
+                     B: 保持原样：Standard 默认固定数据表视图
+                     ========================================== */
+                  <div style={{ width: (Object.values(colWidths) as number[]).reduce((a, b) => a + b, 0) + 40, minWidth: '100%' }}>
+                      
+                      <div className="flex sticky top-0 z-10 shadow-sm h-9 pl-4 border-b border-stone-300/50 bg-white/40 backdrop-blur-md">
+                          <HeaderCell label={t.table.content} colKey="content" />
+                          <HeaderCell label={t.table.added} colKey="createdAt" sortKey="createdAt" />
+                          <HeaderCell label={t.table.start} colKey="startTime" sortKey="startTime" />
+                          <HeaderCell label={t.table.end} colKey="endTime" sortKey="endTime" />
+                          <HeaderCell label={language === 'zh' ? '持续时间' : 'Duration'} colKey="duration" sortKey="duration" />
+                          <HeaderCell label={t.table.location} colKey="location" />
+                          <HeaderCell label={t.table.importance} colKey="importance" sortKey="importance" />
+                          <HeaderCell label={t.table.status} colKey="status" sortKey="status" />
+                          <HeaderCell label={t.table.reminder} colKey="reminder" sortKey="reminderTime" />
+                          <div style={{ width: colWidths.actions }} className="flex items-center justify-end px-2 text-xs font-bold text-stone-600 uppercase bg-stone-50/80 backdrop-blur-sm">{t.table.actions}</div>
+                      </div>
+
+                      <div className="pb-10 pl-4">
+
+
                       {sortedNotes.length === 0 && <div className="text-center py-12 text-stone-500/50 italic">{t.table.empty}</div>}
                       
                       {Object.keys(groupedNotes).sort((a,b) => b.localeCompare(a)).map(groupKey => {
@@ -1319,7 +1924,7 @@ const Notebook: React.FC<NotebookProps> = ({
                         const isDraggable = !editingId; // 允许在任何视图拖拽，用于移动到笔记本
                         if (isEditing) {
                             return (
-                                <div key={note.id} className="flex items-start border-b border-blue-200 bg-blue-50/90 backdrop-blur-sm">
+                                <div key={note.id} data-editing-row="true" className="flex items-start border-b border-blue-200 bg-blue-50/90 backdrop-blur-sm">
                                     <div style={{ width: colWidths.content }} className="p-2"><div className="flex gap-1"><input autoFocus className="w-full text-sm p-1.5 border rounded" placeholder="Event description..." value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} /><button onClick={handleAIParse} disabled={isProcessingAI} className="p-1 bg-indigo-100 text-indigo-600 rounded"><Sparkles size={14} className={isProcessingAI ? 'animate-spin' : ''} /></button></div></div>
                                     <div style={{ width: colWidths.createdAt }} className="p-2"><TimePicker value={formData.createdAt} onChange={(v) => setFormData({...formData, createdAt: v})} /></div>
                                     <div style={{ width: colWidths.startTime }} className="p-2"><TimePicker value={formData.startTime} onChange={handleStartTimeChange} /></div>
@@ -1407,7 +2012,9 @@ const Notebook: React.FC<NotebookProps> = ({
                           );
                       })}
                   </div>
-               </div>
+                      
+                  </div>
+               )}
             </div>
          </div>
       </div>
@@ -1536,6 +2143,78 @@ const Notebook: React.FC<NotebookProps> = ({
                           <button onClick={generateWeeklyReport} className="ml-auto px-4 py-2 bg-blue-600 text-white rounded-lg shadow font-bold text-sm hover:bg-blue-700 transition-colors">Generate Report</button>
                       </div>
                       <div className="flex-1 flex flex-col"><label className="text-[10px] font-bold text-stone-400 uppercase block mb-1">Export Result (Current Week)</label><textarea readOnly className="w-full h-full p-4 border border-stone-200 rounded-xl bg-stone-50 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-100 text-stone-700" value={exportResult} placeholder="Click 'Generate Report'..." /></div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* ==========================================
+          [新增] 动态列管理弹窗 Modal
+          ========================================== */}
+      {showColumnSettings && activeGroup?.schema && (
+          <div className="fixed inset-0 z-[1100] bg-black/30 backdrop-blur-[2px] flex items-center justify-center pointer-events-auto" onClick={() => setShowColumnSettings(false)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-[500px] max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                  
+                  {/* 弹窗头部 */}
+                  <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50">
+                      <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2">
+                          <Columns className="text-blue-600" /> {language === 'zh' ? '管理数据列' : 'Manage Columns'}
+                      </h2>
+                      <button onClick={() => setShowColumnSettings(false)} className="p-1 rounded-full hover:bg-stone-200 text-stone-400 hover:text-stone-600 transition-colors"><X size={20} /></button>
+                  </div>
+
+                  {/* 核心区：列列表 */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-stone-50/50">
+                      {activeGroup.schema.sort((a,b) => a.order - b.order).map((field, index, arr) => (
+                          <div key={field.id} className={`flex items-center justify-between p-3 rounded-xl border bg-white shadow-sm transition-all ${field.isVisible ? 'border-stone-200' : 'border-dashed border-stone-300 opacity-60'}`}>
+                              
+                              {/* 左侧：可见性切换 & 字段名 */}
+                              <div className="flex items-center gap-3">
+                                  <button onClick={() => toggleColumnVisibility(field.id)} className={`p-1.5 rounded-lg transition-colors ${field.isVisible ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-stone-400 bg-stone-100 hover:bg-stone-200'}`}>
+                                      {field.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+                                  </button>
+                                  <div>
+                                      <div className="text-sm font-bold text-stone-700">{field.label}</div>
+                                      <div className="text-[10px] text-stone-400 font-mono mt-0.5">{field.isSystem ? 'System Field' : 'Custom Field'}</div>
+                                  </div>
+                              </div>
+
+                              {/* 右侧：排序与删除操作 */}
+                              <div className="flex items-center gap-1">
+                                  {/* 上移 */}
+                                  <button onClick={() => handleMoveColumn(index, 'up')} disabled={index === 0} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30"><ArrowUp size={16} /></button>
+                                  {/* 下移 */}
+                                  <button onClick={() => handleMoveColumn(index, 'down')} disabled={index === arr.length - 1} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30"><ArrowDown size={16} /></button>
+                                  <div className="w-px h-4 bg-stone-200 mx-1"></div>
+                                  {/* 删除 (仅允许删除非系统列) */}
+                                  <button onClick={() => handleDeleteCustomColumn(field.id)} disabled={field.isSystem} className="p-1.5 rounded text-stone-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-0 disabled:cursor-default" title={field.isSystem ? 'System fields cannot be deleted' : 'Delete column'}>
+                                      <Trash2 size={16} />
+                                  </button>
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+
+                  {/* 底部：新增列输入区 */}
+                  <div className="p-4 border-t border-stone-100 bg-white">
+                      <label className="text-[10px] font-bold text-stone-400 uppercase block mb-2">{language === 'zh' ? '添加自定义列' : 'Add Custom Column'}</label>
+                      <div className="flex gap-2">
+                          <input 
+                              type="text" 
+                              className="flex-1 border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" 
+                              placeholder={language === 'zh' ? "输入列名..." : "Column Name..."}
+                              value={newColumnName}
+                              onChange={e => setNewColumnName(e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && handleAddCustomColumn()}
+                          />
+                          <button 
+                              onClick={handleAddCustomColumn} 
+                              disabled={!newColumnName.trim()}
+                              className="flex items-center gap-1 px-4 py-2 bg-stone-800 text-white rounded-lg font-bold text-sm disabled:opacity-50 hover:bg-stone-900 transition-colors"
+                          >
+                              <Plus size={16} /> {language === 'zh' ? '添加' : 'Add'}
+                          </button>
+                      </div>
                   </div>
               </div>
           </div>
