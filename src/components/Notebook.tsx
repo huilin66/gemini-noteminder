@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { Note, NoteStatus, NoteImportance, Group, ColumnWidths, ThemeConfig, ViewState, Language, NoteTexture, NotePreset, NoteStyleVariant, NoteDecorationPosition, SmartBook, NoteTheme, LLMConfig, LLMProvider } from '../utils/types';
-import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, AlarmClock, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Columns, ArrowUp, ArrowDown, Folder, RefreshCw, AlertTriangle, Globe, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock, ChevronDown, ChevronRight, EyeOff, LineChart, ChevronsDown, ChevronsRight } from 'lucide-react';
+import { Pin, Trash2, MapPin, Bell, PenLine, Sparkles, Image as ImageIcon, AlarmClock, GripVertical, Plus, Save, X, Calendar, FolderOpen, FileDown, FileUp, Library, Table, StickyNote as StickyNoteIcon, Settings2, Columns, ArrowUp, ArrowDown, Folder, RefreshCw, AlertTriangle, ChevronsUp, HelpCircle, Book, BookOpen, Settings, Layers, ClipboardList, Eye, Link, Star, Sheet, FileText, PlayCircle, CheckCircle, RotateCcw, Cpu, Terminal, Filter, PinOff, PieChart, Ban, Clock, ChevronDown, ChevronRight, EyeOff, LineChart, ChevronsDown, ChevronsRight } from 'lucide-react';
 import { parseNoteWithAI } from '../utils/geminiService';
 import { translations } from '../utils/i18n';
 import TimePicker from './TimePicker';
@@ -227,6 +227,9 @@ const Notebook: React.FC<NotebookProps> = ({
 
   const [showFilters, setShowFilters] = useState(false);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
+
+  const [localSchema, setLocalSchema] = useState<RecordFieldSchema[]>([]);
+
   const [newColumnName, setNewColumnName] = useState('');
   const [filterConfig, setFilterConfig] = useState<FilterConfig>({
       status: [],
@@ -322,9 +325,12 @@ const Notebook: React.FC<NotebookProps> = ({
   
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
-  
   const dragGroupItem = useRef<number | null>(null);
   const dragGroupOverItem = useRef<number | null>(null);
+
+  const dragColItem = useRef<number | null>(null);
+  const dragColOverItem = useRef<number | null>(null);
+  const [draggingColIndex, setDraggingColIndex] = useState<number | null>(null);
 
   const activeGroup = useMemo(() => groups.find(g => g.id === activeGroupId), [groups, activeGroupId]);
   const currentGroupNotes = useMemo(() => notes.filter(n => n.groupId === activeGroupId), [notes, activeGroupId]);
@@ -471,6 +477,52 @@ const Notebook: React.FC<NotebookProps> = ({
     
     return groups;
   }, [sortedNotes, groupingMode]);
+
+  const handleColDragStart = (e: React.DragEvent, position: number) => {
+    dragColItem.current = position;
+    setDraggingColIndex(position);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleColDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // 极其重要：只有阻止默认事件，浏览器才允许在此处触发 Drop
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  // --- [新增] 在松手瞬间触发，精准获取目标索引 ---
+  const handleColDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    const dragIndex = dragColItem.current;
+
+    // 如果确实发生了跨行拖拽
+    if (dragIndex !== null && dragIndex !== dropIndex) {
+      setLocalSchema(prev => {
+        const arr = [...prev];
+        const item = arr.splice(dragIndex, 1)[0]; // 拔出被拖拽的项
+        arr.splice(dropIndex, 0, item); // 插入到松手的位置
+        return arr.map((col, i) => ({ ...col, order: i + 1 })); // 重新洗牌序号
+      });
+    }
+    
+    // 成功后清理状态
+    setDraggingColIndex(null);
+    dragColItem.current = null;
+  };
+
+  const handleColDragEnd = () => {
+    // 兜底清理：防止用户拖拽到弹窗外面（取消拖拽）时，高亮状态卡住
+    setDraggingColIndex(null);
+    dragColItem.current = null;
+  };
+
+
+  // --- [新增] 确认保存操作 ---
+  const handleConfirmColumns = () => {
+    if (activeGroup) {
+      onUpdateGroup({ ...activeGroup, schema: localSchema });
+    }
+    setShowColumnSettings(false);
+  };
 
   const getGroupLabel = (key: string) => {
       if (groupingMode === 'none') return '';
@@ -689,57 +741,45 @@ const Notebook: React.FC<NotebookProps> = ({
   
   // 1. 切换列的显示/隐藏
   const toggleColumnVisibility = (fieldId: string) => {
-    if (!activeGroup || !activeGroup.schema) return;
-    const newSchema = activeGroup.schema.map(f => 
+    setLocalSchema(prev => prev.map(f => 
       f.id === fieldId ? { ...f, isVisible: !f.isVisible } : f
-    );
-    onUpdateGroup({ ...activeGroup, schema: newSchema });
+    ));
   };
 
-  // 2. 调整列的顺序 (上移/下移)
-  const handleMoveColumn = (index: number, direction: 'up' | 'down') => {
-    if (!activeGroup || !activeGroup.schema) return;
-    // 先按当前的 order 排好序
-    const sorted = [...activeGroup.schema].sort((a,b) => a.order - b.order);
-    
-    if (direction === 'up' && index > 0) {
-        const temp = sorted[index].order;
-        sorted[index].order = sorted[index-1].order;
-        sorted[index-1].order = temp;
-    } else if (direction === 'down' && index < sorted.length - 1) {
-        const temp = sorted[index].order;
-        sorted[index].order = sorted[index+1].order;
-        sorted[index+1].order = temp;
-    }
-    // 更新保存
-    onUpdateGroup({ ...activeGroup, schema: sorted });
+  const handleMoveColumn = (index: number, action: 'up' | 'down' | 'top' | 'bottom') => {
+    setLocalSchema(prev => {
+        const arr = [...prev];
+        const item = arr.splice(index, 1)[0]; // 提取当前项
+        
+        if (action === 'up') arr.splice(index - 1, 0, item);
+        else if (action === 'down') arr.splice(index + 1, 0, item);
+        else if (action === 'top') arr.splice(0, 0, item); // 插入到最前
+        else if (action === 'bottom') arr.push(item); // 插入到最后
+
+        // 重新分配连续的 order 序号
+        return arr.map((col, i) => ({ ...col, order: i + 1 }));
+    });
   };
 
-  // 3. 新增自定义列
   const handleAddCustomColumn = () => {
-    if (!activeGroup || !activeGroup.schema || !newColumnName.trim()) return;
-    const maxOrder = Math.max(...activeGroup.schema.map(f => f.order), 0);
+    if (!newColumnName.trim()) return;
+    const maxOrder = localSchema.length > 0 ? Math.max(...localSchema.map(f => f.order)) : 0;
     
     const newField: RecordFieldSchema = {
-        id: `custom_${generateShortId()}`, // 加上 custom_ 前缀方便识别
+        id: `custom_${generateShortId()}`,
         label: newColumnName.trim(),
         type: 'text',
         isVisible: true,
         order: maxOrder + 1,
         width: 120,
-        isSystem: false // 标记为非系统列，数据会存入 recordData
+        isSystem: false
     };
-    onUpdateGroup({ ...activeGroup, schema: [...activeGroup.schema, newField] });
+    setLocalSchema(prev => [...prev, newField]);
     setNewColumnName('');
   };
 
-  // 4. 删除自定义列
   const handleDeleteCustomColumn = (fieldId: string) => {
-    if (!activeGroup || !activeGroup.schema) return;
-    onUpdateGroup({
-        ...activeGroup,
-        schema: activeGroup.schema.filter(f => f.id !== fieldId)
-    });
+    setLocalSchema(prev => prev.filter(f => f.id !== fieldId));
   };
 
   const loadPresetIntoDraft = (preset: NotePreset) => {
@@ -1106,7 +1146,14 @@ const Notebook: React.FC<NotebookProps> = ({
     document.body.style.cursor = 'ew-resize';
   };
 
-useEffect(() => {
+
+  useEffect(() => {
+    if (showColumnSettings && activeGroup?.schema) {
+      setLocalSchema([...activeGroup.schema].sort((a, b) => a.order - b.order));
+    }
+  }, [showColumnSettings, activeGroup?.schema]);
+
+  useEffect(() => {
     if (!editingId) return;
 
     const handleGlobalMouseDown = (e: MouseEvent) => {
@@ -2149,74 +2196,92 @@ useEffect(() => {
           </div>
       )}
 
+
       {/* ==========================================
-          [新增] 动态列管理弹窗 Modal
+          动态列管理弹窗 Modal (支持暂存与置顶置底)
           ========================================== */}
       {showColumnSettings && activeGroup?.schema && (
           <div className="fixed inset-0 z-[1100] bg-black/30 backdrop-blur-[2px] flex items-center justify-center pointer-events-auto" onClick={() => setShowColumnSettings(false)}>
-              <div className="bg-white rounded-2xl shadow-2xl w-[500px] max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+              <div className="bg-white rounded-2xl shadow-2xl w-[600px] max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
                   
                   {/* 弹窗头部 */}
-                  <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50">
+                  <div className="p-4 border-b border-stone-100 flex justify-between items-center bg-stone-50 shrink-0">
                       <h2 className="text-lg font-bold text-stone-800 flex items-center gap-2">
                           <Columns className="text-blue-600" /> {language === 'zh' ? '管理数据列' : 'Manage Columns'}
                       </h2>
                       <button onClick={() => setShowColumnSettings(false)} className="p-1 rounded-full hover:bg-stone-200 text-stone-400 hover:text-stone-600 transition-colors"><X size={20} /></button>
                   </div>
 
-                  {/* 核心区：列列表 */}
+                  {/* 核心区：列列表 (基于 localSchema) */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-stone-50/50">
-                      {activeGroup.schema.sort((a,b) => a.order - b.order).map((field, index, arr) => (
-                          <div key={field.id} className={`flex items-center justify-between p-3 rounded-xl border bg-white shadow-sm transition-all ${field.isVisible ? 'border-stone-200' : 'border-dashed border-stone-300 opacity-60'}`}>
-                              
-                              {/* 左侧：可见性切换 & 字段名 */}
-                              <div className="flex items-center gap-3">
-                                  <button onClick={() => toggleColumnVisibility(field.id)} className={`p-1.5 rounded-lg transition-colors ${field.isVisible ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-stone-400 bg-stone-100 hover:bg-stone-200'}`}>
+                      {localSchema.map((field, index, arr) => (
+                          <div 
+                              key={field.id} 
+                              draggable
+                              onDragStart={(e) => handleColDragStart(e, index)}
+                              onDragOver={handleColDragOver}
+                              onDrop={(e) => handleColDrop(e, index)}  // <-- 换成在 Drop 时执行交换逻辑
+                              onDragEnd={handleColDragEnd}             // <-- 仅做状态清理兜底
+                              className={`flex items-center justify-between p-3 rounded-xl border bg-white shadow-sm transition-all hover:border-blue-300 hover:shadow-md cursor-grab active:cursor-grabbing ${field.isVisible ? 'border-stone-200' : 'border-dashed border-stone-300 opacity-60'} ${draggingColIndex === index ? 'opacity-40 scale-[0.98] bg-stone-100 z-50' : ''}`}
+                          >
+                              {/* 左侧：拖拽把手 + 可见性切换 + 字段名 */}
+                              <div className="flex items-center gap-3 pointer-events-none"> {/* 把手区域取消自身事件干扰 */}
+                                  <div className="text-stone-300"><GripVertical size={16} /></div>
+                                  <button onClick={(e) => { e.stopPropagation(); toggleColumnVisibility(field.id); }} className={`p-1.5 rounded-lg transition-colors pointer-events-auto ${field.isVisible ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-stone-400 bg-stone-100 hover:bg-stone-200'}`}>
                                       {field.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
                                   </button>
-                                  <div>
+                                  <div className="pointer-events-auto">
                                       <div className="text-sm font-bold text-stone-700">{field.label}</div>
                                       <div className="text-[10px] text-stone-400 font-mono mt-0.5">{field.isSystem ? 'System Field' : 'Custom Field'}</div>
                                   </div>
                               </div>
 
                               {/* 右侧：排序与删除操作 */}
-                              <div className="flex items-center gap-1">
-                                  {/* 上移 */}
-                                  <button onClick={() => handleMoveColumn(index, 'up')} disabled={index === 0} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30"><ArrowUp size={16} /></button>
-                                  {/* 下移 */}
-                                  <button onClick={() => handleMoveColumn(index, 'down')} disabled={index === arr.length - 1} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30"><ArrowDown size={16} /></button>
+                              <div className="flex items-center gap-0.5">
+                                  {/* 置顶 & 上移 */}
+                                  <button onClick={() => handleMoveColumn(index, 'top')} disabled={index === 0} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30" title="Move to Top"><ChevronsUp size={16} /></button>
+                                  <button onClick={() => handleMoveColumn(index, 'up')} disabled={index === 0} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30" title="Move Up"><ArrowUp size={16} /></button>
+                                  {/* 下移 & 置底 */}
+                                  <button onClick={() => handleMoveColumn(index, 'down')} disabled={index === arr.length - 1} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30" title="Move Down"><ArrowDown size={16} /></button>
+                                  <button onClick={() => handleMoveColumn(index, 'bottom')} disabled={index === arr.length - 1} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30" title="Move to Bottom"><ChevronsDown size={16} /></button>
+                                  
                                   <div className="w-px h-4 bg-stone-200 mx-1"></div>
-                                  {/* 删除 (仅允许删除非系统列) */}
-                                  <button onClick={() => handleDeleteCustomColumn(field.id)} disabled={field.isSystem} className="p-1.5 rounded text-stone-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-0 disabled:cursor-default" title={field.isSystem ? 'System fields cannot be deleted' : 'Delete column'}>
-                                      <Trash2 size={16} />
-                                  </button>
+                                  
+                                  {/* 删除 */}
+                                  <button onClick={() => handleDeleteCustomColumn(field.id)} disabled={field.isSystem} className="p-1.5 rounded text-stone-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-0 disabled:cursor-default" title={field.isSystem ? 'System fields cannot be deleted' : 'Delete column'}><Trash2 size={16} /></button>
                               </div>
                           </div>
                       ))}
                   </div>
 
-                  {/* 底部：新增列输入区 */}
-                  <div className="p-4 border-t border-stone-100 bg-white">
-                      <label className="text-[10px] font-bold text-stone-400 uppercase block mb-2">{language === 'zh' ? '添加自定义列' : 'Add Custom Column'}</label>
-                      <div className="flex gap-2">
+                  {/* 底部区：新增列输入 + 确认/取消 */}
+                  <div className="p-4 border-t border-stone-100 bg-white shrink-0">
+                      {/* 添加新列 */}
+                      <div className="flex gap-2 mb-4">
                           <input 
                               type="text" 
-                              className="flex-1 border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100" 
-                              placeholder={language === 'zh' ? "输入列名..." : "Column Name..."}
+                              className="flex-1 border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 bg-stone-50" 
+                              placeholder={language === 'zh' ? "输入新列名..." : "New Column Name..."}
                               value={newColumnName}
                               onChange={e => setNewColumnName(e.target.value)}
                               onKeyDown={e => e.key === 'Enter' && handleAddCustomColumn()}
                           />
-                          <button 
-                              onClick={handleAddCustomColumn} 
-                              disabled={!newColumnName.trim()}
-                              className="flex items-center gap-1 px-4 py-2 bg-stone-800 text-white rounded-lg font-bold text-sm disabled:opacity-50 hover:bg-stone-900 transition-colors"
-                          >
-                              <Plus size={16} /> {language === 'zh' ? '添加' : 'Add'}
+                          <button onClick={handleAddCustomColumn} disabled={!newColumnName.trim()} className="flex items-center gap-1 px-4 py-2 bg-stone-100 text-stone-700 rounded-lg font-bold text-sm hover:bg-stone-200 disabled:opacity-50 transition-colors">
+                              <Plus size={16} /> {language === 'zh' ? '添加列' : 'Add'}
+                          </button>
+                      </div>
+
+                      {/* 确认与取消操作栏 */}
+                      <div className="flex justify-end gap-3 pt-4 border-t border-stone-100">
+                          <button onClick={() => setShowColumnSettings(false)} className="px-5 py-2 rounded-xl font-bold text-stone-500 hover:bg-stone-100 transition-colors">
+                              {language === 'zh' ? '取消' : 'Cancel'}
+                          </button>
+                          <button onClick={handleConfirmColumns} className="px-5 py-2 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md active:scale-95 transition-transform">
+                              {language === 'zh' ? '确认保存' : 'Save Changes'}
                           </button>
                       </div>
                   </div>
+
               </div>
           </div>
       )}
