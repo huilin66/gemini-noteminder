@@ -331,6 +331,7 @@ const Notebook: React.FC<NotebookProps> = ({
   const dragColItem = useRef<number | null>(null);
   const dragColOverItem = useRef<number | null>(null);
   const [draggingColIndex, setDraggingColIndex] = useState<number | null>(null);
+  const [dragEnabledId, setDragEnabledId] = useState<string | null>(null);
 
   const activeGroup = useMemo(() => groups.find(g => g.id === activeGroupId), [groups, activeGroupId]);
   const currentGroupNotes = useMemo(() => notes.filter(n => n.groupId === activeGroupId), [notes, activeGroupId]);
@@ -484,6 +485,13 @@ const Notebook: React.FC<NotebookProps> = ({
     e.dataTransfer.effectAllowed = "move";
   };
 
+  const handleColumnWidthChange = (fieldId: string, newWidth: number) => {
+    setLocalSchema(prev => prev.map(f => 
+      // 删掉 Math.max，把原汁原味的输入值存起来
+      f.id === fieldId ? { ...f, width: newWidth } : f 
+    ));
+  };
+
   const handleColDragOver = (e: React.DragEvent) => {
     e.preventDefault(); // 极其重要：只有阻止默认事件，浏览器才允许在此处触发 Drop
     e.dataTransfer.dropEffect = "move";
@@ -519,7 +527,13 @@ const Notebook: React.FC<NotebookProps> = ({
   // --- [新增] 确认保存操作 ---
   const handleConfirmColumns = () => {
     if (activeGroup) {
-      onUpdateGroup({ ...activeGroup, schema: localSchema });
+      // 在保存到全局状态前，统一检查，把所有小于 50 的宽度强制拉回到 50
+      const finalSchema = localSchema.map(f => ({
+          ...f,
+          width: Math.max(30, f.width || 30)
+      }));
+      onUpdateGroup({ ...activeGroup, schema: finalSchema });
+      setDynamicColWidths({}); 
     }
     setShowColumnSettings(false);
   };
@@ -1147,11 +1161,18 @@ const Notebook: React.FC<NotebookProps> = ({
   };
 
 
+  // 当弹窗打开时，将当前的 schema 拷贝到本地暂存区，并合并当前可能的拖拽临时宽度
   useEffect(() => {
     if (showColumnSettings && activeGroup?.schema) {
-      setLocalSchema([...activeGroup.schema].sort((a, b) => a.order - b.order));
+      const mergedSchema = activeGroup.schema.map(f => ({
+          ...f,
+          // 如果这个列被鼠标拖拽过，优先使用拖拽后的真实临时宽度
+          width: dynamicColWidths[f.id] || f.width
+      })).sort((a, b) => a.order - b.order);
+      
+      setLocalSchema(mergedSchema);
     }
-  }, [showColumnSettings, activeGroup?.schema]);
+  }, [showColumnSettings, activeGroup?.schema, dynamicColWidths]); // 补上 dynamicColWidths 依赖
 
   useEffect(() => {
     if (!editingId) return;
@@ -2217,37 +2238,66 @@ const Notebook: React.FC<NotebookProps> = ({
                       {localSchema.map((field, index, arr) => (
                           <div 
                               key={field.id} 
-                              draggable
+                              // --- 1. [关键修改] 只有鼠标在这个行的把手上时，整行才开启 draggable ---
+                              draggable={dragEnabledId === field.id}
+                              
                               onDragStart={(e) => handleColDragStart(e, index)}
                               onDragOver={handleColDragOver}
-                              onDrop={(e) => handleColDrop(e, index)}  // <-- 换成在 Drop 时执行交换逻辑
-                              onDragEnd={handleColDragEnd}             // <-- 仅做状态清理兜底
-                              className={`flex items-center justify-between p-3 rounded-xl border bg-white shadow-sm transition-all hover:border-blue-300 hover:shadow-md cursor-grab active:cursor-grabbing ${field.isVisible ? 'border-stone-200' : 'border-dashed border-stone-300 opacity-60'} ${draggingColIndex === index ? 'opacity-40 scale-[0.98] bg-stone-100 z-50' : ''}`}
+                              onDrop={(e) => handleColDrop(e, index)}
+                              onDragEnd={handleColDragEnd}
+                              className={`flex items-center justify-between p-3 rounded-xl border bg-white shadow-sm transition-all hover:border-blue-300 hover:shadow-md ${field.isVisible ? 'border-stone-200' : 'border-dashed border-stone-300 opacity-60'} ${draggingColIndex === index ? 'opacity-40 scale-[0.98] bg-stone-100 z-50' : ''}`}
                           >
                               {/* 左侧：拖拽把手 + 可见性切换 + 字段名 */}
-                              <div className="flex items-center gap-3 pointer-events-none"> {/* 把手区域取消自身事件干扰 */}
-                                  <div className="text-stone-300"><GripVertical size={16} /></div>
+                              <div className="flex items-center gap-3 pointer-events-none">
+                                  
+                                  {/* --- 2. [关键修改] 在把手上监听鼠标移入移出，动态解锁拖拽 --- */}
+                                  <div 
+                                      className="text-stone-300 hover:text-stone-500 cursor-grab active:cursor-grabbing p-1 -ml-1 pointer-events-auto"
+                                      onMouseEnter={() => setDragEnabledId(field.id)}
+                                      onMouseLeave={() => setDragEnabledId(null)}
+                                  >
+                                      <GripVertical size={16} />
+                                  </div>
+                                  
                                   <button onClick={(e) => { e.stopPropagation(); toggleColumnVisibility(field.id); }} className={`p-1.5 rounded-lg transition-colors pointer-events-auto ${field.isVisible ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' : 'text-stone-400 bg-stone-100 hover:bg-stone-200'}`}>
                                       {field.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
                                   </button>
-                                  <div className="pointer-events-auto">
+                                  <div className="pointer-events-auto min-w-[120px]">
                                       <div className="text-sm font-bold text-stone-700">{field.label}</div>
                                       <div className="text-[10px] text-stone-400 font-mono mt-0.5">{field.isSystem ? 'System Field' : 'Custom Field'}</div>
                                   </div>
                               </div>
 
+                              {/* --- [新增] 中间：列宽设置 --- */}
+                              <div className="flex items-center gap-1.5 ml-auto mr-6 pointer-events-auto">
+                                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Width</span>
+                                  <input 
+                                      type="number" 
+                                      min="50"
+                                      // 1. 如果是 0 就显示为空，方便用户全选删除
+                                      value={field.width || ''} 
+                                      // 2. 直接接收输入值，遇到 NaN（比如清空输入框时）给 0
+                                      onChange={(e) => handleColumnWidthChange(field.id, parseInt(e.target.value) || 0)}
+                                      // 3. [新增] 当用户点别的地方（失去焦点）时，自动纠正错误值
+                                      onBlur={(e) => {
+                                          const val = parseInt(e.target.value) || 0;
+                                          if (val < 50) {
+                                              handleColumnWidthChange(field.id, 50);
+                                          }
+                                      }}
+                                      onClick={e => e.stopPropagation()} 
+                                      className="w-14 px-1 py-1 text-xs border border-stone-200 rounded text-center text-stone-700 bg-stone-50 focus:bg-white focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition-colors"
+                                  />
+                                  <span className="text-[10px] text-stone-400">px</span>
+                              </div>
+
                               {/* 右侧：排序与删除操作 */}
-                              <div className="flex items-center gap-0.5">
-                                  {/* 置顶 & 上移 */}
+                              <div className="flex items-center gap-0.5 pointer-events-auto">
                                   <button onClick={() => handleMoveColumn(index, 'top')} disabled={index === 0} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30" title="Move to Top"><ChevronsUp size={16} /></button>
                                   <button onClick={() => handleMoveColumn(index, 'up')} disabled={index === 0} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30" title="Move Up"><ArrowUp size={16} /></button>
-                                  {/* 下移 & 置底 */}
                                   <button onClick={() => handleMoveColumn(index, 'down')} disabled={index === arr.length - 1} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30" title="Move Down"><ArrowDown size={16} /></button>
                                   <button onClick={() => handleMoveColumn(index, 'bottom')} disabled={index === arr.length - 1} className="p-1.5 rounded text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-30" title="Move to Bottom"><ChevronsDown size={16} /></button>
-                                  
                                   <div className="w-px h-4 bg-stone-200 mx-1"></div>
-                                  
-                                  {/* 删除 */}
                                   <button onClick={() => handleDeleteCustomColumn(field.id)} disabled={field.isSystem} className="p-1.5 rounded text-stone-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-0 disabled:cursor-default" title={field.isSystem ? 'System fields cannot be deleted' : 'Delete column'}><Trash2 size={16} /></button>
                               </div>
                           </div>
